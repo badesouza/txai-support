@@ -1,0 +1,25 @@
+{
+  "short_name": "TXAI Support",
+  "name": "TXAI Support - Sistema de Suporte",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "32x32",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "logo.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "logo.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0ea5e9",
+  "background_color": "#ffffff"
+}
