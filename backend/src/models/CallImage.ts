@@ -1,60 +1,49 @@
-import {
-    DataTypes,
-    Model,
-    Optional
-  } from "sequelize";
-  import { sequelize } from "../config/database";
-  import { Call } from "./Call";
-  
-  // Attributes for CallImage
-  interface CallImageAttributes {
-    id: number;
-    call_id: number;
-    image: string;
-    createdAt?: Date;
-    updatedAt?: Date;
-  }
-  
-  interface CallImageCreationAttributes extends Optional<CallImageAttributes, "id"> {}
-  
-  export class CallImage
-    extends Model<CallImageAttributes, CallImageCreationAttributes>
-    implements CallImageAttributes {
-    public id!: number;
-    public call_id!: number;
-    public image!: string;
-  
-    public readonly createdAt!: Date;
-    public readonly updatedAt!: Date;
-  }
-  
-  CallImage.init(
-    {
-      id: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        autoIncrement: true,
-        primaryKey: true,
-      },
-      call_id: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: false,
-        references: {
-          model: Call,
-          key: "id",
-        },
-      },
-      image: {
-        type: DataTypes.STRING,
-        allowNull: false,
-      },
-    },
-    {
-      tableName: "calls_images",
-      sequelize,
+import { CallImage as PrismaCallImage } from '@prisma/client';
+import { prisma } from '../lib/prisma';
+
+export interface CallImageAttributes {
+  id: number;
+  filename: string;
+  path: string;
+  callId: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface CallImageCreationAttributes {
+  filename: string;
+  path: string;
+  callId: number;
+}
+
+export const CallImageModel = {
+  async create(imageData: CallImageCreationAttributes): Promise<PrismaCallImage> {
+    return prisma.callImage.create({
+      data: imageData,
+    });
+  },
+
+  async findById(id: number): Promise<PrismaCallImage | null> {
+    return prisma.callImage.findUnique({
+      where: { id },
+    });
+  },
+
+  async findByCallId(callId: number): Promise<PrismaCallImage[]> {
+    return prisma.callImage.findMany({
+      where: { callId },
+    });
+  },
+
+  async delete(id: number): Promise<boolean> {
+    try {
+      await prisma.callImage.delete({
+        where: { id },
+      });
+      return true;
+    } catch (error) {
+      return false;
     }
-  );
-  
-  // Relacionamento com Call
-  Call.hasMany(CallImage, { foreignKey: "call_id", as: "images" });
-  CallImage.belongsTo(Call, { foreignKey: "call_id" });
+  },
+};
   

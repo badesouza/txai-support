@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { User } from '../models/User';
+import { prisma } from '../lib/prisma';
 
 declare global {
     namespace Express {
@@ -9,6 +9,7 @@ declare global {
                 id: number;
                 name: string;
                 email: string;
+                profile: string;
             };
         }
     }
@@ -38,9 +39,12 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
             id: number;
             name: string;
             email: string;
+            profile: string;
         };
 
-        const user = await User.findByPk(decoded.id);
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.id }
+        });
 
         if (!user) {
             return res.status(401).json({ error: 'User not found' });
@@ -49,7 +53,8 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
         req.user = {
             id: user.id,
             name: user.name,
-            email: user.email
+            email: user.email,
+            profile: user.profile
         };
 
         return next();
@@ -59,7 +64,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 };
 
 export const adminMiddleware = (req: Request, res: Response, next: NextFunction) => {
-    if (req.user?.profile !== 'admin') {
+    if (req.user?.profile !== 'ADMIN') {
         return res.status(403).json({ message: 'Admin access required' });
     }
     next();

@@ -1,16 +1,12 @@
-import { sequelize } from "../config/database";
-import { User } from "./User";
-import { Call } from "./Call";
-import { CallImage } from "./CallImage";
+import { UserModel } from "./User";
+import { CallModel } from "./Call";
+import { CallImageModel } from "./CallImage";
+import { UserTokenModel } from "./UserToken";
 
-// Define associations:
-User.hasMany(Call, { foreignKey: "userId", as: "calls" });
-Call.belongsTo(User, { foreignKey: "userId", as: "requester" });
-
-Call.hasMany(CallImage, { foreignKey: "callId", as: "images" });
-CallImage.belongsTo(Call, { foreignKey: "callId" });
-
-// Synchronize (optional if using migrations):
-sequelize.sync({ alter: true });
-
-export { sequelize, User, Call, CallImage };
+// Export models
+export {
+  UserModel,
+  CallModel,
+  CallImageModel,
+  UserTokenModel,
+};

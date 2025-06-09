@@ -3,35 +3,36 @@ export interface User {
     email: string;
     password: string;
     name: string;
-    phone?: string;
-    status: boolean;
-    profile: string;
-    created_at: Date;
-    updated_at: Date;
+    phone: string;
+    profile: "admin" | "user";
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 export interface Call {
     id: number;
     description: string;
-    user_id: number;
+    userId: number;
     status: 'open' | 'in_service' | 'completed' | 'canceled';
-    created_at: Date;
-    updated_at: Date;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 export interface CallImage {
     id: number;
-    call_id: number;
-    image_path: string;
-    created_at: Date;
+    callId: number;
+    filename: string;
+    path: string;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
-export interface PasswordResetToken {
+export interface UserToken {
     id: number;
-    user_id: number;
+    userId: number;
     token: string;
-    expires_at: Date;
-    created_at: Date;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 export interface UserCreateInput {
@@ -39,12 +40,12 @@ export interface UserCreateInput {
     password: string;
     name: string;
     phone: string;
-    profile: "admin" | "technician" | "requester";
+    profile: "admin" | "user";
 }
 
 export interface CallCreateInput {
     description: string;
-    user_id: number;
+    userId: number;
     status?: 'open' | 'in_service' | 'completed' | 'canceled';
 }
 

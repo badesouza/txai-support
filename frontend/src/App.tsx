@@ -72,7 +72,7 @@ const App = () => {
                         </PrivateRoute>
                     }
                 />
-                <Route path="/" element={<Navigate to="/calls" replace />} />
+                <Route path="/" element={<Navigate to="/login" replace />} />
             </Routes>
         </Router>
     );
