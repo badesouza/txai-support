@@ -5,6 +5,7 @@ import Swal from 'sweetalert2';
 
 export default function NewCall() {
   const navigate = useNavigate();
+  const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
@@ -23,10 +24,10 @@ export default function NewCall() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!description.trim()) {
+    if (!title.trim() || !description.trim()) {
       Swal.fire({
         title: 'Erro!',
-        text: 'Por favor, preencha a descrição do chamado.',
+        text: 'Por favor, preencha o título e a descrição do chamado.',
         icon: 'error',
         confirmButtonText: 'OK'
       });
@@ -45,8 +46,10 @@ export default function NewCall() {
       
       // Primeiro, criar o chamado
       const formData = new FormData();
+      formData.append('title', title.trim());
       formData.append('description', description.trim());
       formData.append('status', 'open');
+      formData.append('priority', 'medium');
       
       // Adicionar imagens ao FormData
       images.forEach(image => {
@@ -64,21 +67,22 @@ export default function NewCall() {
         }
       );
 
-      Swal.fire({
+      await Swal.fire({
         title: 'Sucesso!',
         text: 'Chamado criado com sucesso.',
         icon: 'success',
-        confirmButtonText: 'OK'
-      }).then(() => {
-        navigate('/calls');
+        timer: 1500,
+        showConfirmButton: false
       });
+      navigate('/calls');
     } catch (error) {
       console.error('Erro ao criar chamado:', error);
       Swal.fire({
         title: 'Erro!',
         text: 'Erro ao criar chamado. Tente novamente.',
         icon: 'error',
-        confirmButtonText: 'OK'
+        timer: 1500,
+        showConfirmButton: false
       });
     } finally {
       setLoading(false);
@@ -86,12 +90,26 @@ export default function NewCall() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
         Novo Chamado
       </h2>
       <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Título
+            </label>
+            <input
+              type="text"
+              id="title"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:text-white"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Digite o título do chamado..."
+            />
+          </div>
+
           <div>
             <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Descrição

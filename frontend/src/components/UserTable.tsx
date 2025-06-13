@@ -191,7 +191,7 @@ export default function UserTable() {
                     {user.phone}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                    {user.profile === 'admin' ? 'Administrador' : 'Usuário'}
+                    {user.profile.toUpperCase() === 'ADMIN' ? 'Administrador' : 'Usuário'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Swal from 'sweetalert2';
@@ -6,14 +6,34 @@ import InputMask from 'react-input-mask';
 
 export default function NewUser() {
   const navigate = useNavigate();
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
     password: '',
     confirmPassword: '',
-    profile: 'user'
+    profile: 'USER'
   });
+
+  // Foca no campo nome quando o componente montar
+  useEffect(() => {
+    nameInputRef.current?.focus();
+  }, []);
+
+  const clearForm = () => {
+    setFormData({
+      name: '',
+      email: '',
+      phone: '',
+      password: '',
+      confirmPassword: '',
+      profile: 'USER'
+    });
+    // Foca no campo nome após limpar o formulário
+    nameInputRef.current?.focus();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,25 +50,30 @@ export default function NewUser() {
 
     try {
       const token = localStorage.getItem('token');
-      await axios.post('http://localhost:3001/api/users', formData, {
+      await axios.post('http://localhost:3001/api/users/register', formData, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
-      Swal.fire({
+      
+      await Swal.fire({
         title: 'Sucesso!',
         text: 'Usuário criado com sucesso.',
         icon: 'success',
-        confirmButtonText: 'OK'
+        timer: 1500,
+        showConfirmButton: false
       });
-      navigate('/users');
+
+      // Limpa o formulário após o sucesso
+      clearForm();
     } catch (error) {
       console.error('Erro ao criar usuário:', error);
       Swal.fire({
         title: 'Erro!',
         text: 'Erro ao criar usuário. Tente novamente.',
         icon: 'error',
-        confirmButtonText: 'OK'
+        timer: 1500,
+        showConfirmButton: false
       });
     }
   };
@@ -74,6 +99,7 @@ export default function NewUser() {
               Nome
             </label>
             <input
+              ref={nameInputRef}
               type="text"
               id="name"
               name="name"
@@ -111,6 +137,7 @@ export default function NewUser() {
               value={formData.phone}
               onChange={handleChange}
               required
+              inputRef={phoneInputRef}
               className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
@@ -157,8 +184,8 @@ export default function NewUser() {
               required
               className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             >
-              <option value="user">Usuário</option>
-              <option value="admin">Administrador</option>
+              <option value="USER">Usuário</option>
+              <option value="ADMIN">Administrador</option>
             </select>
           </div>
 

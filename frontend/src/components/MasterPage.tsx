@@ -6,7 +6,9 @@ import {
   TicketIcon, 
   ChartBarIcon, 
   CogIcon, 
-  ArrowLeftOnRectangleIcon 
+  ArrowLeftOnRectangleIcon,
+  ChatBubbleLeftRightIcon,
+  PhoneIcon
 } from '@heroicons/react/24/outline';
 import logo from '../logo.svg';
 import Swal from 'sweetalert2';
@@ -39,12 +41,12 @@ const MasterPage = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  const menuItems = [
-    { path: '/home', icon: HomeIcon, label: 'Dashboard' },
-    { path: '/users', icon: UserIcon, label: 'Usuários' },
+  const navigation = [
+    { path: '/', icon: HomeIcon, label: 'Dashboard' },
     { path: '/calls', icon: TicketIcon, label: 'Chamados' },
+    { path: '/users', icon: UserIcon, label: 'Usuários' },
     { path: '/reports', icon: ChartBarIcon, label: 'Relatórios' },
-    { path: '/settings', icon: CogIcon, label: 'Configurações' },
+    { path: '/whatsapp', icon: PhoneIcon, label: 'WhatsApp' }
   ];
 
   return (
@@ -84,7 +86,7 @@ const MasterPage = ({ children }: { children: React.ReactNode }) => {
           </div>
 
           <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-            {menuItems.map((item) => {
+            {navigation.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname === item.path;
               return (

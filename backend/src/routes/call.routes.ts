@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { CallController } from '../controllers/call.controller';
+import { CallStatusHistoryController } from '../controllers/call-status-history.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
-import { upload } from '../middleware/upload.middleware';
+import { upload, processUploadedFiles } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -14,11 +15,14 @@ router.get('/', CallController.listAllCalls);
 // Obter um chamado específico
 router.get('/:id', CallController.getCallById);
 
+// Obter histórico de status de um chamado
+router.get('/:callId/status-history', CallStatusHistoryController.getCallStatusHistory);
+
 // Criar um novo chamado
-router.post('/', upload.array('images', 5), CallController.createCall);
+router.post('/', upload, processUploadedFiles, CallController.createCall);
 
 // Atualizar um chamado
-router.put('/:id', CallController.updateCall);
+router.put('/:id', upload, processUploadedFiles, CallController.updateCall);
 
 // Deletar um chamado
 router.delete('/:id', CallController.deleteCall);

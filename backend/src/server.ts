@@ -1,31 +1,73 @@
-import express from "express";
-import cors from "cors";
-import userRoutes from "./routes/user.routes";
-import callRoutes from "./routes/call.routes";
-import { prisma } from "./lib/prisma";
+// backend/src/server.ts
+
+import express from 'express';
+import cors from 'cors';
+import { PrismaClient } from '@prisma/client';
+import path from 'path';
+import fs from 'fs';
+import process from 'process';
+import routes from './routes';
+import { errorHandler } from './middleware/error.middleware';
 
 const app = express();
+const prisma = new PrismaClient();
+const port = process.env.PORT || 3001;
 
-app.use(cors());
+// 1) Configurar CORS para permitir seu front
+app.use(cors({
+  origin: 'http://localhost:3000',
+  credentials: true,
+}));
 app.use(express.json());
 
-// Routes
-app.use("/api/users", userRoutes);
-app.use("/api/calls", callRoutes);
+// Configurar o diretório de uploads
+console.log('=== SERVER UPLOADS INFO ===');
+console.log('__dirname:', __dirname);
+console.log('Caminho atual:', process.cwd());
 
-// Initialize database and start server
-const PORT = process.env.PORT || 3001;
+const uploadsPath = path.join(process.cwd(), 'uploads');
+console.log('Caminho da pasta uploads:', uploadsPath);
 
-// Test database connection and start server
+if (!fs.existsSync(uploadsPath)) {
+  console.log('Criando diretório uploads...');
+  fs.mkdirSync(uploadsPath, { recursive: true });
+}
+
+console.log('Configuração do uploads:', {
+  __dirname,
+  uploadsPath,
+  exists: fs.existsSync(uploadsPath),
+  isDirectory: fs.existsSync(uploadsPath) ? fs.statSync(uploadsPath).isDirectory() : false,
+  permissions: fs.existsSync(uploadsPath) ? fs.statSync(uploadsPath).mode : 'N/A',
+  files: fs.existsSync(uploadsPath) ? fs.readdirSync(uploadsPath) : []
+});
+
+// 3) Servir arquivos estáticos de /uploads
+app.use(
+  '/uploads',
+  express.static(uploadsPath, {
+    maxAge: '30d',
+    setHeaders(res, filePath) {
+      // Permitir CORS também nos assets
+      res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+    },
+  })
+);
+
+// 4) Montar rotas da API
+app.use('/api', routes);
+
+// 5) Middleware de tratamento de erro
+app.use(errorHandler);
+
+// 6) Conectar ao banco e iniciar o servidor
 prisma.$connect()
   .then(() => {
-    console.log('Connection to database has been established successfully.');
-    
-    // Start server
-    app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
+    console.log('✅ Conectado ao banco de dados');
+    app.listen(port, () => {
+      console.log(`🚀 Server rodando em http://localhost:${port}`);
     });
   })
   .catch(err => {
-    console.error('Unable to connect to the database:', err);
-  }); 
+    console.error('❌ Falha ao conectar ao banco:', err);
+  });

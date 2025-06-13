@@ -1,3 +1,4 @@
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -8,9 +9,10 @@ import EditUser from './pages/EditUser';
 import Calls from './pages/Calls';
 import NewCall from './pages/NewCall';
 import EditCall from './pages/EditCall';
+import WhatsApp from './pages/WhatsApp';
 import PrivateRoute from './components/PrivateRoute';
 
-const App = () => {
+const App: React.FC = () => {
     return (
         <Router>
             <Routes>
@@ -69,6 +71,14 @@ const App = () => {
                     element={
                         <PrivateRoute>
                             <EditCall />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
+                    path="/whatsapp"
+                    element={
+                        <PrivateRoute>
+                            <WhatsApp />
                         </PrivateRoute>
                     }
                 />

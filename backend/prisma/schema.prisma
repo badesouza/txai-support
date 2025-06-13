@@ -9,29 +9,33 @@ datasource db {
 }
 
 model User {
-  id        Int         @id @default(autoincrement())
-  name      String      @db.VarChar(100)
-  email     String      @unique @db.VarChar(100)
-  password  String      @db.VarChar(100)
-  phone     String      @db.VarChar(20)
-  profile   Profile     @default(USER)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  calls     Call[]
-  tokens    UserToken[]
+  id            Int                 @id @default(autoincrement())
+  name          String              @db.VarChar(100)
+  email         String              @unique @db.VarChar(100)
+  password      String              @db.VarChar(100)
+  phone         String              @db.VarChar(20)
+  profile       Profile             @default(USER)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  calls         Call[]
+  tokens        UserToken[]
+  statusHistory CallStatusHistory[]
 }
 
 model Call {
-  id          Int         @id @default(autoincrement())
-  title       String      @db.VarChar(100)
-  description String      @db.Text
-  status      CallStatus  @default(OPEN)
-  priority    Priority    @default(MEDIUM)
-  userId      Int
-  user        User        @relation(fields: [userId], references: [id])
-  images      CallImage[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id            Int                 @id @default(autoincrement())
+  title         String              @db.VarChar(100)
+  description   String              @db.Text
+  status        String              @db.VarChar(20)
+  priority      String              @db.VarChar(20)
+  userId        Int
+  user          User                @relation(fields: [userId], references: [id])
+  images        CallImage[]
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  statusHistory CallStatusHistory[]
+
+  @@map("calls")
 }
 
 model CallImage {
@@ -51,6 +55,19 @@ model UserToken {
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model CallStatusHistory {
+  id        Int      @id @default(autoincrement())
+  callId    Int
+  oldStatus String
+  newStatus String
+  userId    Int
+  createdAt DateTime @default(now())
+  call      Call     @relation(fields: [callId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("call_status_history")
 }
 
 enum Profile {

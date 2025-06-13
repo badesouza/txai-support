@@ -17,7 +17,8 @@ export default function Calls() {
           </Link>
         </div>
       </div>
-      <div className="mt-8">
+
+      <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow">
         <CallTable />
       </div>
     </div>

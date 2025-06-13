@@ -9,13 +9,20 @@ export class UserController {
             console.log('Body recebido:', req.body);
             console.log('Content-Type:', req.headers['content-type']);
 
-            const userData = req.body;
+            const { confirmPassword, ...userData } = req.body;
             console.log('Dados do usuário:', userData);
 
             if (!userData.email || !userData.password || !userData.name || !userData.phone) {
                 return res.status(400).json({ 
                     message: 'Missing required fields',
                     required: ['email', 'password', 'name', 'phone', 'profile']
+                });
+            }
+
+            if (!userData.profile || !['USER', 'ADMIN'].includes(userData.profile)) {
+                return res.status(400).json({ 
+                    message: 'Invalid profile',
+                    validProfiles: ['USER', 'ADMIN']
                 });
             }
 
@@ -28,11 +35,23 @@ export class UserController {
                 return res.status(400).json({ message: 'Email already registered' });
             }
 
+            console.log('Criando hash da senha...');
             const hashedPassword = await bcrypt.hash(userData.password, 10);
+            console.log('Hash da senha criado');
+
+            console.log('Criando usuário com dados:', {
+                ...userData,
+                password: '[REDACTED]',
+                profile: userData.profile as 'USER' | 'ADMIN'
+            });
+
             const user = await prisma.user.create({
                 data: {
-                    ...userData,
-                    password: hashedPassword
+                    name: userData.name,
+                    email: userData.email,
+                    password: hashedPassword,
+                    phone: userData.phone,
+                    profile: userData.profile as 'USER' | 'ADMIN'
                 }
             });
             console.log('Usuário criado:', user);
@@ -55,6 +74,10 @@ export class UserController {
             });
         } catch (error) {
             console.error('Erro no registro:', error);
+            if (error instanceof Error) {
+                console.error('Mensagem de erro:', error.message);
+                console.error('Stack trace:', error.stack);
+            }
             res.status(500).json({ 
                 message: 'Error creating user',
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -205,30 +228,45 @@ export class UserController {
 
             console.log('Dados recebidos para atualização:', req.body);
             const { password, ...updateData } = req.body;
-            
+
+            // Validar e converter o perfil se estiver presente
+            if (updateData.profile) {
+                const profile = updateData.profile.toUpperCase();
+                if (!['USER', 'ADMIN'].includes(profile)) {
+                    return res.status(400).json({ 
+                        message: 'Invalid profile',
+                        validProfiles: ['USER', 'ADMIN']
+                    });
+                }
+                updateData.profile = profile;
+            }
+
+            // Se uma nova senha foi fornecida, gerar o hash
+            if (password) {
+                console.log('Gerando hash da nova senha...');
+                const hashedPassword = await bcrypt.hash(password, 10);
+                console.log('Hash da senha gerado');
+                updateData.password = hashedPassword;
+            }
+
             const updatedUser = await prisma.user.update({
                 where: { id: userId },
                 data: updateData
             });
 
-            console.log('Usuário atualizado com sucesso:', {
-                id: updatedUser.id,
-                name: updatedUser.name,
-                email: updatedUser.email,
-                phone: updatedUser.phone,
-                profile: updatedUser.profile
-            });
-
             res.json({
                 id: updatedUser.id,
-                name: updatedUser.name,
                 email: updatedUser.email,
+                name: updatedUser.name,
                 phone: updatedUser.phone,
                 profile: updatedUser.profile
             });
         } catch (error) {
             console.error('Erro ao atualizar usuário:', error);
-            res.status(500).json({ message: 'Error updating user' });
+            res.status(500).json({ 
+                message: 'Error updating user',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
         }
     }
 
@@ -236,20 +274,34 @@ export class UserController {
         try {
             const page = parseInt(req.query.page as string) || 1;
             const limit = parseInt(req.query.limit as string) || 10;
+            const search = req.query.search as string;
             const skip = (page - 1) * limit;
+
+            let where: any = {
+                NOT: {
+                    AND: [
+                        { email: 'admin@txai.com' },
+                        { profile: 'ADMIN' }
+                    ]
+                }
+            };
+
+            if (search) {
+                where = {
+                    ...where,
+                    OR: [
+                        { name: { contains: search } },
+                        { email: { contains: search } },
+                        { phone: { contains: search } }
+                    ]
+                };
+            }
 
             const [users, total] = await Promise.all([
                 prisma.user.findMany({
                     skip,
                     take: limit,
-                    where: {
-                        NOT: {
-                            AND: [
-                                { email: 'admin@txai.com' },
-                                { profile: 'ADMIN' }
-                            ]
-                        }
-                    },
+                    where,
                     select: {
                         id: true,
                         name: true,
@@ -258,18 +310,12 @@ export class UserController {
                         profile: true,
                         createdAt: true,
                         updatedAt: true
+                    },
+                    orderBy: {
+                        createdAt: 'desc'
                     }
                 }),
-                prisma.user.count({
-                    where: {
-                        NOT: {
-                            AND: [
-                                { email: 'admin@txai.com.br' },
-                                { profile: 'ADMIN' }
-                            ]
-                        }
-                    }
-                })
+                prisma.user.count({ where })
             ]);
 
             res.json({
@@ -282,21 +328,58 @@ export class UserController {
                 }
             });
         } catch (error) {
-            res.status(500).json({ message: 'Error listing users' });
+            console.error('Error listing users:', error);
+            res.status(500).json({ 
+                message: 'Error listing users',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
         }
     }
 
     static async createUser(req: Request, res: Response) {
         try {
+            console.log('Body recebido:', req.body);
+            console.log('Content-Type:', req.headers['content-type']);
+
             const userData = req.body;
+            console.log('Dados do usuário:', userData);
+
+            if (!userData.email || !userData.password || !userData.name || !userData.phone) {
+                return res.status(400).json({ 
+                    message: 'Missing required fields',
+                    required: ['email', 'password', 'name', 'phone', 'profile']
+                });
+            }
+
+            const existingUser = await prisma.user.findUnique({
+                where: { email: userData.email }
+            });
+            console.log('Usuário existente:', existingUser);
+
+            if (existingUser) {
+                return res.status(400).json({ message: 'Email already registered' });
+            }
+
+            console.log('Criando hash da senha...');
             const hashedPassword = await bcrypt.hash(userData.password, 10);
-            
+            console.log('Hash da senha criado');
+
+            console.log('Criando usuário com dados:', {
+                ...userData,
+                password: '[REDACTED]',
+                profile: userData.profile
+            });
+
             const user = await prisma.user.create({
                 data: {
-                    ...userData,
-                    password: hashedPassword
+                    name: userData.name,
+                    email: userData.email,
+                    password: hashedPassword,
+                    phone: userData.phone,
+                    profile: userData.profile
                 }
             });
+            console.log('Usuário criado:', user);
 
             res.status(201).json({
                 id: user.id,
@@ -306,7 +389,15 @@ export class UserController {
                 profile: user.profile
             });
         } catch (error) {
-            res.status(500).json({ message: 'Error creating user' });
+            console.error('Erro ao criar usuário:', error);
+            if (error instanceof Error) {
+                console.error('Mensagem de erro:', error.message);
+                console.error('Stack trace:', error.stack);
+            }
+            res.status(500).json({ 
+                message: 'Error creating user',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
         }
     }
 
