@@ -1,7 +1,0 @@
-2025/06/13-10:44:47.157 7020 Reusing MANIFEST C:\Users\bades\OneDrive\Documents\Bruno\projects\txai-support\backend\tokens\txai-whatsapp\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2025/06/13-10:44:47.158 7020 Recovering log #6734
-2025/06/13-10:44:47.189 7020 Reusing old log C:\Users\bades\OneDrive\Documents\Bruno\projects\txai-support\backend\tokens\txai-whatsapp\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/006734.log 
-2025/06/13-10:44:47.194 82c0 Level-0 table #6736: started
-2025/06/13-10:44:47.215 82c0 Level-0 table #6736: 1030523 bytes OK
-2025/06/13-10:44:47.217 82c0 Delete type=0 #6734
-2025/06/13-10:44:47.217 82c0 Manual compaction at level-0 from '\x00\x01\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x02\x00\x00\x00' @ 0 : 0; will stop at (end)
