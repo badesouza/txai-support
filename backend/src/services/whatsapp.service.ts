@@ -105,223 +105,160 @@ class WhatsAppService {
 
       this.client.onMessage(async (message: any) => {
         try {
+          // Log message type first
+          this.logMessageType(message);
+
           // Check for group messages using both isGroup flag and @g.us suffix
           const isGroupMessage = message.isGroup || message.from.endsWith('@g.us');
           if (isGroupMessage) {
-            console.log('Ignorando mensagem de grupo:', message.groupName || message.from);
             return;
           }
 
           // Check for status messages
           if (message.from === 'status@broadcast') {
-            console.log('📱 Status recebido:', {
-              type: message.type,
-              timestamp: message.timestamp,
-              body: message.body || 'Mídia de status'
-            });
             return;
           }
 
-          console.log('📨 Nova mensagem recebida:', {
-            from: message.from,
-            author: message.notifyName || message.sender?.pushname || message.sender?.name || message.sender?.shortName || message.pushName || 'Desconhecido',
-            body: message.body,
-            type: message.type,
-            timestamp: message.timestamp,
-            isGroup: message.isGroup,
-            groupName: message.groupName
-          });
-
-          // Get or create user
-          let user = await prisma.user.findFirst({
-            where: { phone: message.from }
-          });
-
+          // Get user by phone
+          const user = await this.findUserByPhone(message.from);
           if (!user) {
-            console.log('👤 Criando novo usuário para:', message.from);
-            
-            // Format phone numbers for comparison
-            const cleanDbPhone = (phone: string) => phone.replace(/[^0-9]/g, '');
-            const cleanWhatsAppPhone = (phone: string) => {
-              // Remove @c.us or @g.us and any non-numeric characters
-              const clean = phone.split('@')[0].replace(/[^0-9]/g, '');
-              // Remove first digit (country code) if it exists
-              const withoutCountryCode = clean.length > 10 ? clean.slice(2) : clean;
-              // Add '9' after DDD if it's a mobile number (8 digits after DDD)
-              if (withoutCountryCode.length === 10) {
-                return withoutCountryCode.slice(0, 2) + '9' + withoutCountryCode.slice(2);
-              }
-              return withoutCountryCode;
-            };
-
-            // Try to find user with formatted phone number
-            const formattedWhatsAppPhone = cleanWhatsAppPhone(message.from);
-            console.log('📱 Comparando números:', {
-              whatsapp: formattedWhatsAppPhone,
-              original: message.from
-            });
-            
-            // Get all users and find matching phone
-            const allUsers = await prisma.user.findMany({
-              where: {
-                phone: {
-                  not: ''
-                }
-              }
-            });
-
-            // Find user with matching formatted phone number
-            const existingUser = allUsers.find(dbUser => 
-              cleanDbPhone(dbUser.phone) === formattedWhatsAppPhone
-            );
-
-            if (existingUser) {
-              console.log('✅ Usuário encontrado com número formatado:', existingUser.id);
-              user = existingUser;
-            } else {
-              // Create new user if no match found
-              const cleanPhone = message.from.replace(/[^0-9]/g, '');
-              const userName = message.pushName;
-              
-              user = await prisma.user.create({
-                data: {
-                  name: userName || 'Usuário WhatsApp',
-                  email: `wa_${cleanPhone}@txai.com`,
-                  phone: message.from,
-                  profile: 'USER' as Profile,
-                  password: 'whatsapp123'
-                }
-              });
-              console.log('✅ Novo usuário criado:', user.id);
-            }
+            console.log('👤 Usuário não encontrado:', message.from);
+            return;
           }
 
           // Get user's last call
           const lastCall = await prisma.call.findFirst({
             where: { userId: user.id },
-            orderBy: { createdAt: 'desc' }
+            orderBy: { id: 'desc' },
           });
 
           const now = new Date();
           let call;
 
-          if (lastCall) {
-            const timeDiff = now.getTime() - new Date(lastCall.createdAt).getTime();
-            const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
-
-            if (timeDiff < fiveMinutes) {
-              // Update existing call description with just a line break
-              const newDescription = `${lastCall.description}\n${message.body || 'Mídia enviada'}`;
-
-              call = await prisma.call.update({
-                where: { id: lastCall.id },
-                data: { description: newDescription }
-              });
-              console.log('📝 Chamado atualizado:', call.id);
-            } else {
-              // Create new call
-              call = await prisma.call.create({
-                data: {
-                  title: message.type !== 'chat' ? 'Chamado criado por imagem' : message.body.substring(0, 100),
-                  description: message.type !== 'chat' ? 'Chamado criado por imagem' : message.body,
-                  status: 'OPEN',
-                  priority: 'MEDIUM',
-                  userId: user.id
-                }
-              });
-              console.log('📝 Novo chamado criado:', call.id);
-            }
-          } else {
-            // Create new call
+          // Check if message is a new call request
+          if (message.type === 'chat' && this.isNewCallMessage(message.body)) {
+            console.log('📝 Iniciando novo chamado para usuário:', user.id);
             call = await prisma.call.create({
               data: {
-                title: message.type !== 'chat' ? 'Chamado criado por imagem' : message.body.substring(0, 100),
-                description: message.type !== 'chat' ? 'Chamado criado por imagem' : message.body,
+                title: '',
+                description: '',
                 status: 'OPEN',
                 priority: 'MEDIUM',
                 userId: user.id
               }
             });
-            console.log('📝 Novo chamado criado:', call.id);
+            console.log('✅ Novo chamado criado:', call.id);
+            
+            // Send confirmation message
+            try {
+              await this.client?.sendText(message.from, 'Qual o local do chamado?');
+              console.log('✅ Mensagem de confirmação enviada');
+            } catch (error) {
+              console.error('❌ Erro ao enviar mensagem de confirmação:', error);
+            }
+            return;
           }
 
-          // Handle media files
-          if (message.type === 'image' || message.type === 'video' || message.type === 'document') {
-            try {
-              if (!call) {
-                console.log('⚠️ Nenhum chamado encontrado para anexar a mídia');
-                return;
+          if (lastCall) {
+            if (lastCall.title === '') {
+              call = await prisma.call.update({
+                where: { id: lastCall.id },
+                data: { title: message.body }
+              });
+              try {
+                await this.client?.sendText(message.from, 'Chamado iniciado, por favor descreva o chamado');
+                console.log('✅ Mensagem de descricao de chamado enviada');
+              } catch (error) {
+                console.error('❌ Erro ao enviar mensagem de confirmação:', error);
               }
+              return;
+            }
+            // Update existing call description with just a line break
+            const newDescription = `${lastCall.description}\n${message.body || 'Mídia enviada'}`;
+            call = await prisma.call.update({
+              where: { id: lastCall.id },
+              data: { description: newDescription }
+            });
+            console.log('📝 Chamado atualizado:', call.id);            
 
-              console.log('📎 Anexando mídia ao chamado:', call.id);
-
-              // Download media using the correct method
-              const media = await this.client?.downloadMedia(message);
-              if (!media) {
-                throw new Error('Failed to download media');
-              }
-
-              // Extract base64 data from the data URL if present
-              let base64Data = media;
-              if (media.startsWith('data:')) {
-                const matches = media.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-                if (matches && matches.length === 3) {
-                  base64Data = matches[2];
+            // Handle media files
+            if (message.type === 'image' || message.type === 'video' || message.type === 'document') {
+              try {
+                if (!call) {
+                  console.log('⚠️ Nenhum chamado encontrado para anexar a mídia');
+                  return;
                 }
-              }
 
-              // Get the correct file extension based on mimetype
-              let fileExtension = 'jpg'; // default extension
-              if (message.mimetype) {
-                const mimeParts = message.mimetype.split('/');
-                if (mimeParts.length > 1) {
-                  const ext = mimeParts[1].toLowerCase();
-                  // Map common image types to their extensions
-                  switch (ext) {
-                    case 'jpeg':
-                    case 'jpg':
-                      fileExtension = 'jpg';
-                      break;
-                    case 'png':
-                      fileExtension = 'png';
-                      break;
-                    case 'gif':
-                      fileExtension = 'gif';
-                      break;
-                    case 'webp':
-                      fileExtension = 'webp';
-                      break;
-                    default:
-                      fileExtension = ext;
+                console.log('📎 Anexando mídia ao chamado:', call.id);
+
+                // Download media using the correct method
+                const media = await this.client?.downloadMedia(message);
+                if (!media) {
+                  throw new Error('Failed to download media');
+                }
+
+                // Extract base64 data from the data URL if present
+                let base64Data = media;
+                if (media.startsWith('data:')) {
+                  const matches = media.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                  if (matches && matches.length === 3) {
+                    base64Data = matches[2];
                   }
                 }
-              }
 
-              // Convert base64 to buffer
-              const buffer = Buffer.from(base64Data, 'base64');
-              
-              // Create uploads directory if it doesn't exist
-              const uploadsDir = path.join(__dirname, '../../uploads');
-              await fs.mkdir(uploadsDir, { recursive: true });
-
-              // Generate unique filename with proper extension
-              const filename = `${Date.now()}-${message.filename || `media.${fileExtension}`}`;
-              const filepath = path.join(uploadsDir, filename);
-
-              // Save file
-              await fs.writeFile(filepath, buffer);
-
-              // Create call image record
-              await prisma.callImage.create({
-                data: {
-                  filename: filename,
-                  path: `/uploads/${filename}`,
-                  callId: call.id
+                // Get the correct file extension based on mimetype
+                let fileExtension = 'jpg'; // default extension
+                if (message.mimetype) {
+                  const mimeParts = message.mimetype.split('/');
+                  if (mimeParts.length > 1) {
+                    const ext = mimeParts[1].toLowerCase();
+                    // Map common image types to their extensions
+                    switch (ext) {
+                      case 'jpeg':
+                      case 'jpg':
+                        fileExtension = 'jpg';
+                        break;
+                      case 'png':
+                        fileExtension = 'png';
+                        break;
+                      case 'gif':
+                        fileExtension = 'gif';
+                        break;
+                      case 'webp':
+                        fileExtension = 'webp';
+                        break;
+                      default:
+                        fileExtension = ext;
+                    }
+                  }
                 }
-              });
-              console.log('📎 Mídia salva:', filename, 'Tipo:', message.mimetype);
-            } catch (error) {
-              console.error('Erro ao salvar mídia:', error);
+
+                // Convert base64 to buffer
+                const buffer = Buffer.from(base64Data, 'base64');
+                
+                // Create uploads directory if it doesn't exist
+                const uploadsDir = path.join(__dirname, '../../uploads');
+                await fs.mkdir(uploadsDir, { recursive: true });
+
+                // Generate unique filename with proper extension
+                const filename = `${Date.now()}-${message.filename || `media.${fileExtension}`}`;
+                const filepath = path.join(uploadsDir, filename);
+
+                // Save file
+                await fs.writeFile(filepath, buffer);
+
+                // Create call image record
+                await prisma.callImage.create({
+                  data: {
+                    filename: filename,
+                    path: `/uploads/${filename}`,
+                    callId: call.id
+                  }
+                });
+                console.log('📎 Mídia salva:', filename, 'Tipo:', message.mimetype);
+              } catch (error) {
+                console.error('Erro ao salvar mídia:', error);
+              }
             }
           }
         } catch (error) {
@@ -387,16 +324,90 @@ class WhatsAppService {
     this.eventEmitter.on('message', callback);
   }
 
-  // Método para debug de mensagens
-  private logMessageDetails(message: any) {
-    console.log('\n🔍 Detalhes completos da mensagem:');
-    console.log('----------------------------------------');
-    Object.entries(message).forEach(([key, value]) => {
-      if (typeof value !== 'function') {
-        console.log(`${key}:`, value);
-      }
+  private logMessageType(message: any) {
+    // Check for group messages
+    const isGroupMessage = message.isGroup || message.from.endsWith('@g.us');
+    if (isGroupMessage) {
+      console.log('👥 Ignorando mensagem de grupo:', message.groupName || message.from);
+      return;
+    }
+
+    // Define message types
+    type MessageType = 'chat' | 'image' | 'video' | 'document' | 'audio' | 'sticker' | 
+                      'location' | 'contact' | 'order' | 'revoked' | 'buttons_response' | 
+                      'list_response' | 'template';
+
+    // Log message type with emoji
+    const typeEmoji: Record<MessageType, string> = {
+      'chat': '💬',
+      'image': '🖼️',
+      'video': '🎥',
+      'document': '📄',
+      'audio': '🎵',
+      'sticker': '🎯',
+      'location': '📍',
+      'contact': '👤',
+      'order': '🛍️',
+      'revoked': '🗑️',
+      'buttons_response': '🔘',
+      'list_response': '📋',
+      'template': '📝'
+    };
+
+    const messageType = message.type as MessageType;
+    const emoji = typeEmoji[messageType] || '❓';
+
+    console.log(`${emoji} Nova mensagem recebida:`, {
+      from: message.from,
+      author: message.notifyName || message.sender?.pushname || message.sender?.name || message.sender?.shortName || message.pushName || 'Desconhecido',
+      type: message.type,
+      body: message.body || 'Mídia enviada',
+      timestamp: new Date(message.timestamp * 1000).toLocaleString()
     });
-    console.log('----------------------------------------\n');
+  }
+
+  private formatPhoneNumber(phone: string): string {
+    // Remove all non-numeric characters
+    const numbers = phone.replace(/\D/g, '');
+    
+    // If it's a WhatsApp number (contains @c.us), remove it
+    const cleanNumber = numbers.split('@')[0];
+    
+    // Handle Brazilian phone numbers
+    if (cleanNumber.length >= 10) {
+      // Remove country code if present (55)
+      const withoutCountryCode = cleanNumber.length > 10 ? cleanNumber.slice(2) : cleanNumber;
+      
+      // Format as (DD) XXXXX-XXXX
+      const ddd = withoutCountryCode.slice(0, 2);
+      const firstPart = withoutCountryCode.slice(2, 6);
+      const secondPart = withoutCountryCode.slice(6, 10);
+      
+      return `(${ddd}) 9${firstPart}-${secondPart}`;
+    }
+    
+    return cleanNumber;
+  }
+
+  private isNewCallMessage(message: string): boolean {
+    const normalizedMessage = message.toLowerCase().trim();
+    return normalizedMessage === 'novo' || normalizedMessage === 'novo chamado';
+  }
+
+  private async findUserByPhone(phone: string) {
+    const formattedPhone = this.formatPhoneNumber(phone);
+    console.log('📱 Procurando usuário com número:', formattedPhone);
+
+    // Try to find user with exact formatted phone
+    let user = await prisma.user.findFirst({
+      where: { phone: formattedPhone }
+    });
+
+    if (user) {
+      console.log('✅ Usuário encontrado com número exato:', user.id);
+      return user;
+    }
+    return console.log('❌ Nenhum usuário encontrado com o número:', formattedPhone);
   }
 
   async sendMessage(to: string, message: string) {

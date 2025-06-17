@@ -236,7 +236,7 @@ export class CallController {
         return res.status(404).json({ message: 'Call not found' });
       }
 
-      // Atualizar o chamado
+      // Atualizar o chamado com as novas imagens
       const updatedCall = await prisma.call.update({
         where: { id: callId },
         data: {
@@ -244,7 +244,14 @@ export class CallController {
           description,
           status,
           priority,
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          // Adicionar novas imagens se houver
+          images: {
+            create: Array.isArray(req.files) ? req.files.map((file: Express.Multer.File) => ({
+              filename: file.filename,
+              path: `/uploads/${file.filename}`
+            })) : []
+          }
         },
         include: {
           user: {
