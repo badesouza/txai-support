@@ -78,6 +78,22 @@ export default function EditCall() {
 
   const removeExistingImage = async (imageId: number) => {
     try {
+      // Show confirmation dialog
+      const result = await Swal.fire({
+        title: 'Tem certeza?',
+        text: "Esta ação não poderá ser revertida!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Sim, deletar!',
+        cancelButtonText: 'Cancelar'
+      });
+
+      if (!result.isConfirmed) {
+        return;
+      }
+
       const token = localStorage.getItem('token');
       await axios.delete(`http://localhost:3001/api/calls/${id}/images/${imageId}`, {
         headers: {

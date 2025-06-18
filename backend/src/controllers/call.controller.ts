@@ -319,4 +319,83 @@ export class CallController {
       });
     }
   }
+
+  static async getCallStatistics(req: Request, res: Response) {
+    try {
+      const { dateStart, dateEnd, status } = req.query;
+      
+      // Build where clause
+      const where: Prisma.CallWhereInput = {};
+      
+      if (dateStart && dateEnd) {
+        // Always use UTC for date filtering
+        const startDate = new Date(`${dateStart}T00:00:00.000Z`);
+        const endDate = new Date(`${dateEnd}T23:59:59.999Z`);
+
+        where.createdAt = {
+          gte: startDate,
+          lte: endDate,
+        };
+      }
+      
+      if (status && status !== 'ALL') {
+        where.status = status as string;
+      }
+
+      // Get calls grouped by status
+      const calls = await prisma.call.groupBy({
+        by: ['status'],
+        where,
+        _count: {
+          status: true,
+        },
+      });
+
+      // Format data for chart
+      const labels = calls.map(call => call.status);
+      const data = calls.map(call => call._count.status);
+
+      res.json({
+        labels,
+        datasets: [{
+          label: 'Chamados',
+          data,
+          backgroundColor: 'rgba(53, 162, 235, 0.5)',
+        }],
+      });
+    } catch (error) {
+      console.error('Error getting call statistics:', error);
+      res.status(500).json({ 
+        message: 'Error getting call statistics',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  static async deleteCallImage(req: Request, res: Response) {
+    try {
+      const callId = parseInt(req.params.callId);
+      const imageId = parseInt(req.params.imageId);
+
+      if (isNaN(callId) || isNaN(imageId)) {
+        return res.status(400).json({ message: 'Invalid call ID or image ID' });
+      }
+
+      // Delete the image
+      await prisma.callImage.delete({
+        where: {
+          id: imageId,
+          callId: callId
+        }
+      });
+
+      res.json({ message: 'Image deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting call image:', error);
+      res.status(500).json({ 
+        message: 'Error deleting call image',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
 }

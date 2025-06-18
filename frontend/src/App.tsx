@@ -10,6 +10,7 @@ import Calls from './pages/Calls';
 import NewCall from './pages/NewCall';
 import EditCall from './pages/EditCall';
 import WhatsApp from './pages/WhatsApp';
+import Reports from './pages/Reports';
 import PrivateRoute from './components/PrivateRoute';
 
 const App: React.FC = () => {
@@ -79,6 +80,14 @@ const App: React.FC = () => {
                     element={
                         <PrivateRoute>
                             <WhatsApp />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
+                    path="/reports"
+                    element={
+                        <PrivateRoute>
+                            <Reports />
                         </PrivateRoute>
                     }
                 />

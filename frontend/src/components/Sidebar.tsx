@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { HomeIcon, UsersIcon, TicketIcon } from '@heroicons/react/24/outline';
+import { UsersIcon, TicketIcon, ChartBarIcon } from '@heroicons/react/24/outline';
 
 export default function Sidebar() {
   const location = useLocation();
@@ -37,6 +37,18 @@ export default function Sidebar() {
           >
             <UsersIcon className="mr-3 h-6 w-6" />
             Usuários
+          </Link>
+
+          <Link
+            to="/reports"
+            className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
+              isActive('/reports')
+                ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
+          >
+            <ChartBarIcon className="mr-3 h-6 w-6" />
+            Relatórios
           </Link>
         </nav>
       </div>

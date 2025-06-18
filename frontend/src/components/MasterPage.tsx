@@ -5,9 +5,7 @@ import {
   UserIcon, 
   TicketIcon, 
   ChartBarIcon, 
-  CogIcon, 
   ArrowLeftOnRectangleIcon,
-  ChatBubbleLeftRightIcon,
   PhoneIcon
 } from '@heroicons/react/24/outline';
 import logo from '../logo.svg';
@@ -42,7 +40,7 @@ const MasterPage = ({ children }: { children: React.ReactNode }) => {
   };
 
   const navigation = [
-    { path: '/', icon: HomeIcon, label: 'Dashboard' },
+    { path: '/', icon: HomeIcon, label: 'Home' },
     { path: '/calls', icon: TicketIcon, label: 'Chamados' },
     { path: '/users', icon: UserIcon, label: 'Usuários' },
     { path: '/reports', icon: ChartBarIcon, label: 'Relatórios' },

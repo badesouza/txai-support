@@ -12,6 +12,9 @@ router.use(authMiddleware);
 // Listar todos os chamados
 router.get('/', CallController.listAllCalls);
 
+// Obter estatísticas dos chamados
+router.get('/statistics', CallController.getCallStatistics);
+
 // Obter um chamado específico
 router.get('/:id', CallController.getCallById);
 
@@ -26,5 +29,8 @@ router.put('/:id', upload, processUploadedFiles, CallController.updateCall);
 
 // Deletar um chamado
 router.delete('/:id', CallController.deleteCall);
+
+// Deletar uma imagem de um chamado
+router.delete('/:callId/images/:imageId', CallController.deleteCallImage);
 
 export default router; 
