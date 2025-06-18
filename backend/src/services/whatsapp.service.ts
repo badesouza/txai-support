@@ -132,7 +132,6 @@ class WhatsAppService {
             orderBy: { id: 'desc' },
           });
 
-          const now = new Date();
           let call;
 
           // Check if message is a new call request
@@ -141,7 +140,13 @@ class WhatsAppService {
             call = await prisma.call.create({
               data: {
                 title: '',
-                description: '',
+                description: `(${new Date().toLocaleString('pt-BR', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })})`,
                 status: 'OPEN',
                 priority: 'MEDIUM',
                 userId: user.id
@@ -160,36 +165,39 @@ class WhatsAppService {
           }
 
           if (lastCall) {
-            if (lastCall.title === '') {
+            if (lastCall.title === '' && message.type === 'chat') {
               call = await prisma.call.update({
                 where: { id: lastCall.id },
                 data: { title: message.body }
               });
               try {
-                await this.client?.sendText(message.from, 'Chamado iniciado, por favor descreva o chamado');
+                await this.client?.sendText(message.from, 'Chamado iniciado...');
                 console.log('✅ Mensagem de descricao de chamado enviada');
               } catch (error) {
                 console.error('❌ Erro ao enviar mensagem de confirmação:', error);
               }
               return;
             }
-            // Update existing call description with just a line break
-            const newDescription = `${lastCall.description}\n${message.body || 'Mídia enviada'}`;
-            call = await prisma.call.update({
-              where: { id: lastCall.id },
-              data: { description: newDescription }
-            });
-            console.log('📝 Chamado atualizado:', call.id);            
+
+            if (message.type === 'chat') {
+              // Update existing call description with just a line break
+              const newDescription = `${lastCall.description}\n${message.body || 'Mídia enviada'}`;
+              call = await prisma.call.update({
+                where: { id: lastCall.id },
+                data: { description: newDescription }
+              });
+              console.log('📝 Chamado atualizado:', call.id);            
+            }
 
             // Handle media files
             if (message.type === 'image' || message.type === 'video' || message.type === 'document') {
               try {
-                if (!call) {
+                if (!lastCall) {
                   console.log('⚠️ Nenhum chamado encontrado para anexar a mídia');
                   return;
                 }
 
-                console.log('📎 Anexando mídia ao chamado:', call.id);
+                console.log('📎 Anexando mídia ao chamado:', lastCall.id);
 
                 // Download media using the correct method
                 const media = await this.client?.downloadMedia(message);
@@ -252,7 +260,7 @@ class WhatsAppService {
                   data: {
                     filename: filename,
                     path: `/uploads/${filename}`,
-                    callId: call.id
+                    callId: lastCall.id
                   }
                 });
                 console.log('📎 Mídia salva:', filename, 'Tipo:', message.mimetype);

@@ -44,6 +44,7 @@ export default function CallTable() {
   const [calls, setCalls] = useState<Call[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedImages, setSelectedImages] = useState<Array<{ id: number; path: string }> | null>(null);
@@ -96,10 +97,12 @@ export default function CallTable() {
       if (response.data && response.data.calls && Array.isArray(response.data.calls)) {
         setCalls(response.data.calls);
         setTotalPages(Math.ceil(response.data.pagination.total / itemsPerPage));
+        setTotalItems(response.data.pagination.total);
       } else {
         console.error('Formato de resposta inválido:', response.data);
         setCalls([]);
         setTotalPages(1);
+        setTotalItems(0);
       }
     } catch (error: any) {
       console.error('Erro ao buscar chamados:', error);
@@ -122,6 +125,7 @@ export default function CallTable() {
       }
       setCalls([]);
       setTotalPages(1);
+      setTotalItems(0);
     } finally {
       setLoading(false);
     }
@@ -500,9 +504,13 @@ export default function CallTable() {
         <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
           <div>
             <p className="text-sm text-gray-700 dark:text-gray-300">
-              Mostrando <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> a{' '}
-              <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalPages * itemsPerPage)}</span> de{' '}
-              <span className="font-medium">{totalPages * itemsPerPage}</span> resultados
+              Mostrando <span className="font-medium">
+                {calls.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}
+              </span> a{' '}
+              <span className="font-medium">
+                {Math.min(currentPage * itemsPerPage, totalItems)}
+              </span> de{' '}
+              <span className="font-medium">{totalItems}</span> resultados
             </p>
           </div>
           <div>
