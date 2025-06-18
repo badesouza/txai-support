@@ -1,10 +1,14 @@
 export interface CreateCallDto {
+    title: string;
     description: string;
+    status: "OPEN" | "IN_PROGRESS" | "CLOSED";
+    priority: "LOW" | "MEDIUM" | "HIGH";
     userId: number;
-    status?: "open" | "in_service" | "completed" | "canceled";
 }
 
 export interface UpdateCallDto {
+    title?: string;
     description?: string;
-    status?: "open" | "in_service" | "completed" | "canceled";
+    status?: "OPEN" | "IN_PROGRESS" | "CLOSED";
+    priority?: "LOW" | "MEDIUM" | "HIGH";
 } 

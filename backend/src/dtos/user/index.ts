@@ -3,8 +3,7 @@ export interface CreateUserDto {
     name: string;
     phone: string;
     password: string;
-    status?: boolean;         // opcional, padrão = true
-    profile?: "admin" | "technician" | "requester";
+    profile?: "ADMIN" | "USER";
 }
 
 export interface UpdateUserDto {
@@ -12,6 +11,5 @@ export interface UpdateUserDto {
     name?: string;
     phone?: string;
     password?: string;
-    status?: boolean;
-    profile?: "admin" | "technician" | "requester";
+    profile?: "ADMIN" | "USER";
 } 

@@ -15,15 +15,19 @@ export interface CallAttributes {
 export interface CallCreationAttributes {
   title: string;
   description: string;
-  status?: CallStatus;
-  priority?: Priority;
+  status: CallStatus;
+  priority: Priority;
   userId: number;
 }
 
 export const CallModel = {
   async create(callData: CallCreationAttributes): Promise<PrismaCall> {
     return prisma.call.create({
-      data: callData,
+      data: {
+        ...callData,
+        status: callData.status || 'OPEN',
+        priority: callData.priority || 'MEDIUM',
+      },
     });
   },
 

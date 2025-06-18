@@ -171,7 +171,7 @@ class WhatsAppService {
                 data: { title: message.body }
               });
               try {
-                await this.client?.sendText(message.from, 'Chamado iniciado...');
+                await this.client?.sendText(message.from, 'Chamado #' + lastCall.id + ' iniciado...');
                 console.log('✅ Mensagem de descricao de chamado enviada');
               } catch (error) {
                 console.error('❌ Erro ao enviar mensagem de confirmação:', error);

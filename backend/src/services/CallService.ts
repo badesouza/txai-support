@@ -1,4 +1,4 @@
-import { Call } from "../models/Call";
+import { prisma } from "../lib/prisma";
 import { CreateCallDto, UpdateCallDto } from "../dtos/call";
 import fs from 'fs/promises';
 import path from 'path';
@@ -7,7 +7,7 @@ export class CallService {
   /**
    * Retorna todos os chamados, com opção de filtrar por status ou user_id.
    */
-  public static async getAll(status?: string, userId?: number): Promise<Call[]> {
+  public static async getAll(status?: string, userId?: number) {
     const whereClause: any = {};
     if (status) {
       whereClause.status = status;
@@ -16,20 +16,40 @@ export class CallService {
       whereClause.userId = userId;
     }
 
-    return Call.findAll({
+    return prisma.call.findMany({
       where: whereClause,
-      include: [{ association: "user", attributes: ["id", "name", "email"] }],
-      order: [["createdAt", "DESC"]],
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
     });
   }
 
   /**
    * Busca um chamado pelo ID. Lança erro se não encontrar.
    */
-  public static async getById(id: number): Promise<Call> {
-    const call = await Call.findByPk(id, {
-      include: [{ association: "user", attributes: ["id", "name", "email"] }],
+  public static async getById(id: number) {
+    const call = await prisma.call.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
     });
+    
     if (!call) {
       throw new Error("Chamado não encontrado");
     }
@@ -39,55 +59,89 @@ export class CallService {
   /**
    * Cria um novo chamado. Recebe dados tipados pelo CreateCallDto.
    */
-  public static async create(data: CreateCallDto): Promise<Call> {
-    // Aqui você pode fazer validações adicionais (ex: verificar se user existe)
-    // Exemplo básico:
-    // const userExists = await User.findByPk(data.user_id);
-    // if (!userExists) throw new Error("Usuário não existe");
-
-    const newCall = await Call.create({
-      description: data.description,
-      userId: data.userId,
-      status: data.status ?? "open", // caso envie status por DTO (não obrigatório)
+  public static async create(data: CreateCallDto) {
+    return prisma.call.create({
+      data: {
+        title: data.title,
+        description: data.description,
+        status: data.status,
+        priority: data.priority,
+        userId: data.userId
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
     });
-    return newCall;
   }
 
   /**
    * Atualiza um chamado existente, com os campos permitidos em UpdateCallDto.
    */
-  public static async update(id: number, data: UpdateCallDto): Promise<Call> {
-    const call = await this.getById(id);
-    await call.update({
-      description: data.description ?? call.description,
-      status: data.status ?? call.status,
+  public static async update(id: number, data: UpdateCallDto) {
+    const updateData: any = {};
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.priority !== undefined) updateData.priority = data.priority;
+
+    return prisma.call.update({
+      where: { id },
+      data: updateData,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
     });
-    return call;
   }
 
   /**
    * Exclui um chamado pelo ID.
    */
   public static async delete(id: number): Promise<void> {
-    const call = await this.getById(id);
-    await call.destroy();
+    await prisma.call.delete({
+      where: { id }
+    });
   }
 
   /**
    * Deleta uma imagem de um chamado
    */
   public static async deleteImage(callId: number, imageId: number): Promise<void> {
-    const call = await this.getById(callId);
-    
-    // Aqui você deve implementar a lógica para encontrar a imagem
-    // e deletá-la do sistema de arquivos
-    // Por exemplo:
-    const imagePath = path.join(__dirname, '../../uploads', `${callId}`, `${imageId}.jpg`);
-    
+    // Primeiro, buscar a imagem para obter o caminho do arquivo
+    const image = await prisma.callImage.findFirst({
+      where: {
+        id: imageId,
+        callId: callId
+      }
+    });
+
+    if (!image) {
+      throw new Error('Imagem não encontrada');
+    }
+
+    // Deletar do banco de dados
+    await prisma.callImage.delete({
+      where: { id: imageId }
+    });
+
+    // Tentar deletar o arquivo físico (opcional)
     try {
+      const imagePath = path.join(__dirname, '../../uploads', image.filename);
       await fs.unlink(imagePath);
     } catch (error) {
-      throw new Error('Imagem não encontrada ou erro ao deletar');
+      console.warn('Erro ao deletar arquivo físico:', error);
+      // Não falhar se o arquivo não existir
     }
   }
 }
