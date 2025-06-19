@@ -15,7 +15,13 @@ const port = process.env.PORT || 3001;
 
 // 1) Configurar CORS para permitir seu front
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: [
+    'http://localhost:3000',
+    'http://31.97.170.240',
+    'http://31.97.170.240:3000',
+    'http://31.97.170.240:80',
+    'http://31.97.170.240:443'
+  ],
   credentials: true,
 }));
 app.use(express.json());
@@ -49,7 +55,17 @@ app.use(
     maxAge: '30d',
     setHeaders(res, filePath) {
       // Permitir CORS também nos assets
-      res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://31.97.170.240',
+        'http://31.97.170.240:3000',
+        'http://31.97.170.240:80',
+        'http://31.97.170.240:443'
+      ];
+      const origin = res.req.headers.origin;
+      if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+      }
     },
   })
 );

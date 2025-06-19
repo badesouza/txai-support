@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 
 interface CallImage {
@@ -26,12 +27,7 @@ export default function EditCall() {
   useEffect(() => {
     const fetchCall = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const response = await axios.get(`http://localhost:3001/api/calls/${id}`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+        const response = await api.get(API_CONFIG.ENDPOINTS.CALL_BY_ID(id!));
         console.log('Resposta da API:', response.data);
         const call = response.data;
         setFormData({
@@ -94,12 +90,7 @@ export default function EditCall() {
         return;
       }
 
-      const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:3001/api/calls/${id}/images/${imageId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      await api.delete(API_CONFIG.ENDPOINTS.CALL_IMAGE(id!, imageId));
       setImages(prev => prev.filter(img => img.id !== imageId));
       await Swal.fire({
         title: 'Sucesso!',
@@ -125,7 +116,6 @@ export default function EditCall() {
     setLoading(true);
 
     try {
-      const token = localStorage.getItem('token');
       const formDataToSend = new FormData();
       
       // Adicionar dados do formulário
@@ -141,9 +131,8 @@ export default function EditCall() {
       // Adicionar o status antigo para histórico
       formDataToSend.append('oldStatus', initialStatus);
 
-      await axios.put(`http://localhost:3001/api/calls/${id}`, formDataToSend, {
+      await api.put(API_CONFIG.ENDPOINTS.CALL_BY_ID(id!), formDataToSend, {
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
         }
       });

@@ -1,19 +1,24 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 
 export default function NewCall() {
   const navigate = useNavigate();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    status: 'OPEN',
+    priority: 'MEDIUM'
+  });
   const [images, setImages] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newImages = Array.from(e.target.files);
-      setImages(prev => [...prev, ...newImages]);
+      const newFiles = Array.from(e.target.files);
+      setImages(prev => [...prev, ...newFiles]);
     }
   };
 
@@ -23,45 +28,26 @@ export default function NewCall() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!title.trim() || !description.trim()) {
-      Swal.fire({
-        title: 'Erro!',
-        text: 'Por favor, preencha o título e a descrição do chamado.',
-        icon: 'error',
-        confirmButtonText: 'OK'
-      });
-      return;
-    }
+    setLoading(true);
 
     try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
+      const formDataToSend = new FormData();
       
-      if (!token) {
-        throw new Error('Token não encontrado');
-      }
-
-      const decodedToken = JSON.parse(atob(token.split('.')[1]));
-      
-      // Primeiro, criar o chamado
-      const formData = new FormData();
-      formData.append('title', title.trim());
-      formData.append('description', description.trim());
-      formData.append('status', 'open');
-      formData.append('priority', 'medium');
-      
-      // Adicionar imagens ao FormData
-      images.forEach(image => {
-        formData.append('images', image);
+      // Adicionar dados do formulário
+      Object.entries(formData).forEach(([key, value]) => {
+        formDataToSend.append(key, value);
       });
 
-      const callResponse = await axios.post(
-        'http://localhost:3001/api/calls',
-        formData,
+      // Adicionar imagens
+      images.forEach(image => {
+        formDataToSend.append('images', image);
+      });
+
+      const callResponse = await api.post(
+        API_CONFIG.ENDPOINTS.CALLS,
+        formDataToSend,
         {
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'multipart/form-data'
           }
         }
@@ -104,8 +90,8 @@ export default function NewCall() {
               type="text"
               id="title"
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:text-white"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               placeholder="Digite o título do chamado..."
             />
           </div>
@@ -118,8 +104,8 @@ export default function NewCall() {
               id="description"
               rows={4}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:text-white"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Descreva o problema ou solicitação..."
             />
           </div>

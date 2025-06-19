@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 
 const Login = () => {
@@ -12,7 +13,7 @@ const Login = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const response = await axios.post('http://localhost:3001/api/users/login', {
+            const response = await api.post(API_CONFIG.ENDPOINTS.LOGIN, {
                 email,
                 password
             });

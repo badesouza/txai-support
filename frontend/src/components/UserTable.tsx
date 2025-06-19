@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import Swal from 'sweetalert2';
 import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
+import Swal from 'sweetalert2';
 
 interface User {
   id: number;
@@ -14,34 +15,26 @@ interface User {
 
 export default function UserTable() {
   const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const navigate = useNavigate();
   const itemsPerPage = 10;
+  const navigate = useNavigate();
 
   const fetchUsers = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      
-      // Construir a URL com os parâmetros de busca
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: itemsPerPage.toString()
-      });
-      
+      const params = new URLSearchParams();
+      params.append('page', currentPage.toString());
+      params.append('limit', itemsPerPage.toString());
+
       // Adicionar o termo de busca apenas se não estiver vazio
       if (searchTerm.trim()) {
         params.append('search', searchTerm.trim());
       }
 
-      const response = await axios.get(`http://localhost:3001/api/users?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      const response = await api.get(`${API_CONFIG.ENDPOINTS.USERS}?${params.toString()}`);
 
       if (response.data && Array.isArray(response.data)) {
         setUsers(response.data);
@@ -101,12 +94,7 @@ export default function UserTable() {
 
     if (result.isConfirmed) {
       try {
-        const token = localStorage.getItem('token');
-        await axios.delete(`http://localhost:3001/api/users/${userId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+        await api.delete(API_CONFIG.ENDPOINTS.USER_BY_ID(userId));
         Swal.fire({
           title: 'Excluído!',
           text: 'Usuário excluído com sucesso.',

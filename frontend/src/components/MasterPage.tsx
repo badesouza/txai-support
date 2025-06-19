@@ -40,7 +40,7 @@ const MasterPage = ({ children }: { children: React.ReactNode }) => {
   };
 
   const navigation = [
-    { path: '/', icon: HomeIcon, label: 'Home' },
+    { path: '/home', icon: HomeIcon, label: 'Home' },
     { path: '/calls', icon: TicketIcon, label: 'Chamados' },
     { path: '/users', icon: UserIcon, label: 'Usuários' },
     { path: '/reports', icon: ChartBarIcon, label: 'Relatórios' },

@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import axios from 'axios';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 
 interface FormData {
   name: string;
   email: string;
+  phone: string;
   password: string;
   confirmPassword: string;
 }
@@ -15,6 +17,7 @@ export default function Register() {
   const [formData, setFormData] = useState<FormData>({
     name: '',
     email: '',
+    phone: '',
     password: '',
     confirmPassword: ''
   });
@@ -41,25 +44,26 @@ export default function Register() {
     }
 
     try {
-      await axios.post('http://localhost:3001/api/auth/register', {
+      await api.post(API_CONFIG.ENDPOINTS.REGISTER, {
         name: formData.name,
         email: formData.email,
+        phone: formData.phone,
         password: formData.password
       });
 
       Swal.fire({
         title: 'Sucesso!',
-        text: 'Conta criada com sucesso. Faça login para continuar.',
+        text: 'Usuário registrado com sucesso!',
         icon: 'success',
         confirmButtonText: 'OK'
+      }).then(() => {
+        navigate('/login');
       });
-
-      navigate('/login');
     } catch (error) {
-      console.error('Erro ao registrar:', error);
+      console.error('Erro no registro:', error);
       Swal.fire({
         title: 'Erro!',
-        text: 'Erro ao criar conta. Tente novamente.',
+        text: 'Erro ao registrar usuário. Tente novamente.',
         icon: 'error',
         confirmButtonText: 'OK'
       });
@@ -104,6 +108,21 @@ export default function Register() {
                 onChange={handleChange}
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white dark:bg-gray-700 focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
                 placeholder="Email"
+              />
+            </div>
+            <div>
+              <label htmlFor="phone" className="sr-only">
+                Telefone
+              </label>
+              <input
+                id="phone"
+                name="phone"
+                type="text"
+                required
+                value={formData.phone}
+                onChange={handleChange}
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white dark:bg-gray-700 focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
+                placeholder="Telefone"
               />
             </div>
             <div>

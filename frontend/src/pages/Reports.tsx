@@ -10,7 +10,8 @@ import {
 } from 'chart.js';
 import type { ChartData, ChartOptions } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import axios from 'axios';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
 
 // Register ChartJS components
 ChartJS.register(
@@ -53,12 +54,7 @@ const Reports = () => {
       if (dateEnd) params.append('dateEnd', dateEnd);
       if (status) params.append('status', status);
 
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`http://localhost:3001/api/calls/statistics?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      const response = await api.get(`${API_CONFIG.ENDPOINTS.CALL_STATISTICS}?${params.toString()}`);
       
       // Format status labels for better display
       const formattedLabels = response.data.labels.map((label: string) => {

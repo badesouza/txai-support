@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 import InputMask from 'react-input-mask';
 
@@ -15,16 +16,12 @@ export default function EditUser() {
     confirmPassword: '',
     profile: 'USER'
   });
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const response = await axios.get(`http://localhost:3001/api/users/${id}`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+        const response = await api.get(API_CONFIG.ENDPOINTS.USER_BY_ID(id!));
         const user = response.data;
         setFormData({
           name: user.name,
@@ -40,17 +37,21 @@ export default function EditUser() {
           title: 'Erro!',
           text: 'Erro ao buscar dados do usuário.',
           icon: 'error',
-          confirmButtonText: 'OK'
+          timer: 1500,
+          showConfirmButton: false
         });
         navigate('/users');
       }
     };
 
-    fetchUser();
+    if (id) {
+      fetchUser();
+    }
   }, [id, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
 
     if (formData.password && formData.password !== formData.confirmPassword) {
       Swal.fire({
@@ -59,26 +60,21 @@ export default function EditUser() {
         icon: 'error',
         confirmButtonText: 'OK'
       });
+      setLoading(false);
       return;
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const { confirmPassword, ...dataToSend } = formData;
-      if (!dataToSend.password) {
-        const { password, ...dataWithoutPassword } = dataToSend;
-        await axios.put(`http://localhost:3001/api/users/${id}`, dataWithoutPassword, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+      if (formData.password) {
+        // Se há senha, enviar com senha
+        const { confirmPassword, ...dataToSend } = formData;
+        await api.put(API_CONFIG.ENDPOINTS.USER_BY_ID(id!), dataToSend);
       } else {
-        await axios.put(`http://localhost:3001/api/users/${id}`, dataToSend, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+        // Se não há senha, enviar sem senha
+        const { password, confirmPassword, ...dataWithoutPassword } = formData;
+        await api.put(API_CONFIG.ENDPOINTS.USER_BY_ID(id!), dataWithoutPassword);
       }
+
       await Swal.fire({
         title: 'Sucesso!',
         text: 'Usuário atualizado com sucesso.',
@@ -96,6 +92,8 @@ export default function EditUser() {
         timer: 1500,
         showConfirmButton: false
       });
+    } finally {
+      setLoading(false);
     }
   };
 

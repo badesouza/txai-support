@@ -1,26 +1,23 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { PencilIcon, TrashIcon, EyeIcon } from '@heroicons/react/24/outline';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
-import { PencilIcon, TrashIcon, ClockIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  profile: 'admin' | 'technician' | 'requester';
-}
 
 interface Call {
   id: number;
   title: string;
   description: string;
-  status: 'OPEN' | 'IN_PROGRESS' | 'CLOSED';
-  priority: 'LOW' | 'MEDIUM' | 'HIGH';
-  user: User;
+  status: string;
+  priority: string;
   createdAt: string;
-  updatedAt: string;
+  user: {
+    id: number;
+    name: string;
+    email: string;
+    phone: string;
+  };
   images?: Array<{
     id: number;
     filename: string;
@@ -28,234 +25,16 @@ interface Call {
   }>;
 }
 
-interface StatusHistory {
-  id: number;
-  oldStatus: string;
-  newStatus: string;
-  createdAt: string;
-  user: {
-    id: number;
-    name: string;
-    email: string;
-  };
-}
-
 export default function CallTable() {
   const [calls, setCalls] = useState<Call[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
   const [selectedImages, setSelectedImages] = useState<Array<{ id: number; path: string }> | null>(null);
-  const navigate = useNavigate();
   const itemsPerPage = 10;
-
-  const fetchCalls = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        console.error('Token não encontrado');
-        Swal.fire({
-          title: 'Erro!',
-          text: 'Sessão expirada. Por favor, faça login novamente.',
-          icon: 'error',
-          confirmButtonText: 'OK'
-        }).then(() => {
-          navigate('/login');
-        });
-        return;
-      }
-
-      const params = new URLSearchParams();
-      params.append('page', currentPage.toString());
-      params.append('limit', itemsPerPage.toString());
-      
-      if (searchTerm.trim()) {
-        params.append('search', searchTerm.trim());
-      }
-
-      console.log('Search params:', { searchTerm, params: params.toString() });
-      console.log('Auth header:', { Authorization: `Bearer ${token}` });
-
-      const response = await axios.get(`http://localhost:3001/api/calls?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-
-      console.log('Search response:', response.data);
-      console.log('Calls with images:', response.data.calls.map((call: Call) => ({
-        id: call.id,
-        title: call.title,
-        imagesCount: call.images?.length,
-        images: call.images
-      })));
-
-      if (response.data && response.data.calls && Array.isArray(response.data.calls)) {
-        setCalls(response.data.calls);
-        setTotalPages(Math.ceil(response.data.pagination.total / itemsPerPage));
-        setTotalItems(response.data.pagination.total);
-      } else {
-        console.error('Formato de resposta inválido:', response.data);
-        setCalls([]);
-        setTotalPages(1);
-        setTotalItems(0);
-      }
-    } catch (error: any) {
-      console.error('Erro ao buscar chamados:', error);
-      if (error.response?.status === 401) {
-        Swal.fire({
-          title: 'Erro!',
-          text: 'Sessão expirada. Por favor, faça login novamente.',
-          icon: 'error',
-          confirmButtonText: 'OK'
-        }).then(() => {
-          navigate('/login');
-        });
-      } else {
-        Swal.fire({
-          title: 'Erro!',
-          text: 'Erro ao carregar lista de chamados.',
-          icon: 'error',
-          confirmButtonText: 'OK'
-        });
-      }
-      setCalls([]);
-      setTotalPages(1);
-      setTotalItems(0);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('Search term changed:', e.target.value);
-    setSearchTerm(e.target.value);
-    setCurrentPage(1);
-  };
-
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      fetchCalls();
-    }, 300);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [currentPage, searchTerm]);
-
-  const handleEdit = (callId: number) => {
-    navigate(`/calls/edit/${callId}`);
-  };
-
-  const handleDelete = async (callId: number) => {
-    const result = await Swal.fire({
-      title: 'Tem certeza?',
-      text: "Esta ação não poderá ser revertida!",
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#3085d6',
-      cancelButtonColor: '#d33',
-      confirmButtonText: 'Sim, excluir!',
-      cancelButtonText: 'Cancelar'
-    });
-
-    if (result.isConfirmed) {
-      try {
-        const token = localStorage.getItem('token');
-        await axios.delete(`http://localhost:3001/api/calls/${callId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
-        
-        // Show success message with no buttons and 1500ms timer
-        await Swal.fire({
-          title: 'Excluído!',
-          text: 'Chamado excluído com sucesso.',
-          icon: 'success',
-          timer: 1500,
-          showConfirmButton: false
-        });
-        
-        fetchCalls();
-      } catch (error) {
-        console.error('Erro ao excluir chamado:', error);
-        Swal.fire({
-          title: 'Erro!',
-          text: 'Erro ao excluir chamado. Tente novamente.',
-          icon: 'error',
-          timer: 1500,
-          showConfirmButton: false
-        });
-      }
-    }
-  };
-
-  const handleViewHistory = async (callId: number) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`http://localhost:3001/api/calls/${callId}/status-history`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-
-      const history: StatusHistory[] = response.data;
-      
-      // Criar o conteúdo do modal
-      const historyContent = history.map(item => `
-        <div class="mb-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          <div class="flex justify-between items-center mb-2">
-            <span class="text-sm font-medium text-gray-900 dark:text-white">
-              ${formatDate(item.createdAt)}
-            </span>
-            <span class="text-sm text-gray-500 dark:text-gray-400">
-              por ${item.user.name}
-            </span>
-          </div>
-          <div class="flex items-center space-x-2">
-            <span class="px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(item.oldStatus)}">
-              ${getStatusText(item.oldStatus)}
-            </span>
-            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-            </svg>
-            <span class="px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(item.newStatus)}">
-              ${getStatusText(item.newStatus)}
-            </span>
-          </div>
-        </div>
-      `).join('');
-
-      Swal.fire({
-        title: 'Histórico de Status',
-        html: `
-          <div class="text-left">
-            ${history.length === 0 ? '<p class="text-gray-500 dark:text-gray-400">Nenhum registro encontrado.</p>' : historyContent}
-          </div>
-        `,
-        width: '600px',
-        showCloseButton: true,
-        showConfirmButton: false,
-        customClass: {
-          container: 'dark:bg-gray-800',
-          popup: 'dark:bg-gray-800 dark:text-white',
-          title: 'dark:text-white',
-          closeButton: 'dark:text-white'
-        }
-      });
-    } catch (error) {
-      console.error('Erro ao buscar histórico:', error);
-      Swal.fire({
-        title: 'Erro!',
-        text: 'Erro ao carregar histórico de status.',
-        icon: 'error',
-        confirmButtonText: 'OK'
-      });
-    }
-  };
+  const navigate = useNavigate();
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -309,36 +88,142 @@ export default function CallTable() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const formatPhone = (phone: string) => {
-    // Remove @c.us or @g.us suffix and any non-numeric characters
-    const cleanPhone = phone.split('@')[0].replace(/[^0-9]/g, '');
-    
-    // Remove country code (first digit) if number is longer than 10 digits
-    const withoutCountryCode = cleanPhone.length > 10 ? cleanPhone.slice(1) : cleanPhone;
-    
-    // Format as (XX) XXXXX-XXXX
-    if (withoutCountryCode.length === 11) {
-      return `(${withoutCountryCode.slice(0, 2)}) ${withoutCountryCode.slice(2, 7)}-${withoutCountryCode.slice(7)}`;
-    }
-    return phone; // Return original if not 11 digits
-  };
-
   const handleImageClick = (images: Array<{ id: number; path: string }>) => {
     setSelectedImages(images);
   };
 
   const closeImageGallery = () => {
     setSelectedImages(null);
+  };
+
+  const fetchCalls = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('page', currentPage.toString());
+      params.append('limit', itemsPerPage.toString());
+
+      // Adicionar o termo de busca apenas se não estiver vazio
+      if (searchTerm.trim()) {
+        params.append('search', searchTerm.trim());
+      }
+
+      const response = await api.get(`${API_CONFIG.ENDPOINTS.CALLS}?${params.toString()}`);
+
+      if (response.data && Array.isArray(response.data)) {
+        setCalls(response.data);
+        setTotalPages(Math.ceil(response.data.length / itemsPerPage));
+      } else if (response.data && response.data.calls && Array.isArray(response.data.calls)) {
+        setCalls(response.data.calls);
+        setTotalPages(Math.ceil((response.data.pagination?.total || response.data.calls.length) / itemsPerPage));
+      } else {
+        console.error('Formato de resposta inválido:', response.data);
+        setCalls([]);
+        setTotalPages(1);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar chamados:', error);
+      setCalls([]);
+      setTotalPages(1);
+      Swal.fire({
+        title: 'Erro!',
+        text: 'Erro ao carregar lista de chamados.',
+        icon: 'error',
+        confirmButtonText: 'OK'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Função para lidar com a mudança no campo de busca
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+    setCurrentPage(1); // Resetar para a primeira página ao buscar
+  };
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      fetchCalls();
+    }, 300); // Debounce de 300ms
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [currentPage, searchTerm]);
+
+  const handleEdit = (callId: number) => {
+    navigate(`/calls/edit/${callId}`);
+  };
+
+  const handleView = (callId: number) => {
+    navigate(`/calls/${callId}`);
+  };
+
+  const handleDelete = async (callId: number) => {
+    const result = await Swal.fire({
+      title: 'Tem certeza?',
+      text: "Esta ação não poderá ser revertida!",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#3085d6',
+      cancelButtonColor: '#d33',
+      confirmButtonText: 'Sim, excluir!',
+      cancelButtonText: 'Cancelar'
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await api.delete(API_CONFIG.ENDPOINTS.CALL_BY_ID(callId));
+        Swal.fire({
+          title: 'Excluído!',
+          text: 'Chamado excluído com sucesso.',
+          icon: 'success',
+          confirmButtonText: 'OK'
+        });
+        fetchCalls();
+      } catch (error) {
+        console.error('Erro ao excluir chamado:', error);
+        Swal.fire({
+          title: 'Erro!',
+          text: 'Erro ao excluir chamado. Tente novamente.',
+          icon: 'error',
+          confirmButtonText: 'OK'
+        });
+      }
+    }
+  };
+
+  const handleViewStatusHistory = async (callId: number) => {
+    try {
+      const response = await api.get(API_CONFIG.ENDPOINTS.CALL_STATUS_HISTORY(callId));
+      
+      if (response.data && response.data.length > 0) {
+        const historyText = response.data.map((entry: any) => 
+          `${new Date(entry.createdAt).toLocaleString()}: ${entry.oldStatus} → ${entry.newStatus}`
+        ).join('\n');
+        
+        Swal.fire({
+          title: 'Histórico de Status',
+          text: historyText,
+          icon: 'info',
+          confirmButtonText: 'OK'
+        });
+      } else {
+        Swal.fire({
+          title: 'Histórico de Status',
+          text: 'Nenhum histórico encontrado para este chamado.',
+          icon: 'info',
+          confirmButtonText: 'OK'
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao buscar histórico:', error);
+      Swal.fire({
+        title: 'Erro!',
+        text: 'Erro ao carregar histórico de status.',
+        icon: 'error',
+        confirmButtonText: 'OK'
+      });
+    }
   };
 
   return (
@@ -413,7 +298,7 @@ export default function CallTable() {
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-900 dark:text-white">{call.user.name}</div>
                   <div className="text-sm text-gray-500 dark:text-gray-400">{call.user.email}</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">{formatPhone(call.user.phone)}</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">{call.user.phone}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(call.status)}`}>
@@ -456,11 +341,11 @@ export default function CallTable() {
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <div className="flex justify-end space-x-2">
                     <button
-                      onClick={() => handleViewHistory(call.id)}
+                      onClick={() => handleViewStatusHistory(call.id)}
                       className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
                       title="Histórico"
                     >
-                      <ClockIcon className="h-5 w-5" />
+                      <EyeIcon className="h-5 w-5" />
                     </button>
                     <button
                       onClick={() => handleEdit(call.id)}

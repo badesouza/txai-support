@@ -20,6 +20,8 @@ model User {
   calls         Call[]
   tokens        UserToken[]
   statusHistory CallStatusHistory[]
+
+  @@map("users")
 }
 
 model Call {
@@ -46,6 +48,8 @@ model CallImage {
   call      Call     @relation(fields: [callId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("call_images")
 }
 
 model UserToken {
@@ -55,6 +59,8 @@ model UserToken {
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("user_tokens")
 }
 
 model CallStatusHistory {

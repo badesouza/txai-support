@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../config/axios';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 import InputMask from 'react-input-mask';
 
@@ -49,12 +50,7 @@ export default function NewUser() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.post('http://localhost:3001/api/users/register', formData, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      await api.post(API_CONFIG.ENDPOINTS.USERS, formData);
       
       await Swal.fire({
         title: 'Sucesso!',

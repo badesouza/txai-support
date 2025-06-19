@@ -6,21 +6,45 @@ export class UserService {
   /**
    * Retorna todos os usuários (você pode paginar, esconder senhas etc.).
    */
-  public static async getAll() {
-    return prisma.user.findMany({
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        profile: true,
-        createdAt: true
-      },
-      orderBy: {
-        name: 'asc'
-      }
-    });
+  public static async getAll(page = 1, limit = 10, searchTerm = '') {
+    const skip = (page - 1) * limit;
+  
+    const where = searchTerm
+      ? {
+          OR: [
+            { name: { contains: searchTerm, mode: 'insensitive' } },
+            { email: { contains: searchTerm, mode: 'insensitive' } },
+            { phone: { contains: searchTerm, mode: 'insensitive' } }
+          ]
+        }
+      : {};
+  
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { name: 'asc' },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          phone: true,
+          profile: true,
+          createdAt: true
+        }
+      }),
+      prisma.user.count({ where })
+    ]);
+  
+    return {
+      users,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page
+    };
   }
+  
 
   /**
    * Busca usuário pelo ID. Lança erro se não encontrar.
