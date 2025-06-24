@@ -1,3 +1,8 @@
+// Este arquivo pode ser removido se não houver mais uso de API_CONFIG.BASE_URL.
+// Caso precise manter, exporte a variável de ambiente:
+
+export const BASE_URL = process.env.REACT_APP_API_URL;
+
 // API Configuration
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
