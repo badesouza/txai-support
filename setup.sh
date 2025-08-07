@@ -32,8 +32,8 @@ echo -e "${GREEN}✅ Verificações básicas concluídas${NC}"
 echo -e "${YELLOW}📦 Configurando backend...${NC}"
 cd backend
 
-# Instalar dependências
-npm install --production
+# Instalar dependências (incluindo devDependencies para build)
+npm install
 
 # Criar diretórios necessários
 mkdir -p logs uploads whatsapp-sessions

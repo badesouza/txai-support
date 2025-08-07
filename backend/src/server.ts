@@ -48,7 +48,7 @@ console.log('Configuração do uploads:', {
   files: fs.existsSync(uploadsPath) ? fs.readdirSync(uploadsPath) : []
 });
 
-// 3) Servir arquivos estáticos de /uploads
+// 3) Servir arquivos estáticos de /uploads com melhor tratamento de erros
 app.use(
   '/uploads',
   express.static(uploadsPath, {
@@ -66,9 +66,26 @@ app.use(
       if (origin && allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
       }
+      
+      // Log para debug
+      console.log('📁 Servindo arquivo:', filePath);
+      console.log('📁 Arquivo existe:', fs.existsSync(filePath));
+      if (fs.existsSync(filePath)) {
+        const stats = fs.statSync(filePath);
+        console.log('📁 Tamanho do arquivo:', stats.size, 'bytes');
+        console.log('📁 Permissões:', stats.mode);
+      }
     },
   })
 );
+
+// Middleware para log de requisições de imagens
+app.use('/uploads', (req, res, next) => {
+  console.log('🖼️ Requisição de imagem:', req.url);
+  console.log('🖼️ Caminho completo:', path.join(uploadsPath, req.url));
+  console.log('🖼️ Arquivo existe:', fs.existsSync(path.join(uploadsPath, req.url)));
+  next();
+});
 
 // 4) Montar rotas da API
 app.use('/api', routes);

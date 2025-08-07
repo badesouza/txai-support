@@ -66,7 +66,14 @@ REACT_APP_API_URL=http://31.97.170.240/api
 REACT_APP_ENV=production
 ```
 
-#### 5. Iniciar Aplicação
+#### 5. Resolver Problemas de Build (se necessário)
+
+```bash
+# Se houver erros de TypeScript, execute:
+./fix-build.sh
+```
+
+#### 6. Iniciar Aplicação
 
 ```bash
 cd backend
@@ -75,7 +82,7 @@ pm2 save
 pm2 startup
 ```
 
-#### 6. Configurar Nginx
+#### 7. Configurar Nginx
 
 ```bash
 # Copiar configuração
@@ -85,7 +92,7 @@ sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-#### 7. Configurar SSL
+#### 8. Configurar SSL
 
 ```bash
 sudo certbot --nginx -d seudominio.com
@@ -101,7 +108,7 @@ Acesse: `http://31.97.170.240`
 ./deploy.sh
 ```
 
-### 📊 Monitoramento
+### �� Monitoramento
 
 ```bash
 pm2 status          # Status da aplicação
@@ -111,12 +118,13 @@ pm2 monit           # Monitoramento em tempo real
 
 ### 🚨 Troubleshooting Rápido
 
-| Problema | Solução                         |
-| -------- | ------------------------------- |
-| Erro 502 | `pm2 restart txai-backend`      |
-| CORS     | Verificar `CORS_ORIGIN` no .env |
-| MySQL    | `sudo systemctl status mysql`   |
-| Nginx    | `sudo nginx -t`                 |
+| Problema             | Solução                         |
+| -------------------- | ------------------------------- |
+| Erro 502             | `pm2 restart txai-backend`      |
+| CORS                 | Verificar `CORS_ORIGIN` no .env |
+| MySQL                | `sudo systemctl status mysql`   |
+| Nginx                | `sudo nginx -t`                 |
+| **Build TypeScript** | `./fix-build.sh`                |
 
 ### 📞 Comandos Úteis
 
@@ -133,8 +141,33 @@ pm2 logs txai-backend --lines 100
 # Reiniciar tudo
 pm2 restart all
 sudo systemctl restart nginx
+
+# Corrigir build
+./fix-build.sh
 ```
+
+### 🔧 Solução para Erros de Build
+
+Se você encontrar erros de TypeScript como:
+
+```
+Could not find a declaration file for module 'express'
+```
+
+Execute o script de correção:
+
+```bash
+./fix-build.sh
+```
+
+Este script irá:
+
+1. Limpar dependências antigas
+2. Instalar todas as dependências (incluindo devDependencies)
+3. Instalar tipos TypeScript necessários
+4. Gerar Prisma client
+5. Fazer o build do projeto
 
 ---
 
-**🎯 Dica:** Use `./setup.sh` para configuração inicial e `./deploy.sh` para atualizações!
+**🎯 Dica:** Use `./setup.sh` para configuração inicial, `./fix-build.sh` para problemas de build e `./deploy.sh` para atualizações!

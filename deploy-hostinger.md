@@ -81,7 +81,7 @@ cd txai-support
 
 ```bash
 cd backend
-npm install --production
+npm install
 ```
 
 #### Configurar Banco de Dados MySQL
@@ -278,7 +278,7 @@ git pull origin main
 
 # Instalar dependências do backend
 cd backend
-npm install --production
+npm install
 npm run build
 
 # Instalar dependências do frontend

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PencilIcon, TrashIcon, EyeIcon } from '@heroicons/react/24/outline';
 import api from '../config/axios';
-import { API_CONFIG } from '../config/api';
+import { API_CONFIG, getImageUrl } from '../config/api';
 import Swal from 'sweetalert2';
 
 interface Call {
@@ -320,7 +320,7 @@ export default function CallTable() {
                         {call.images.slice(0, 4).map((image, index) => (
                           <img
                             key={image.id}
-                            src={`http://localhost:3001${image.path}`}
+                            src={getImageUrl(image.path)}
                             alt={`Imagem ${index + 1}`}
                             className="w-8 h-8 rounded-full border-2 border-white dark:border-gray-800"
                           />
@@ -465,7 +465,7 @@ export default function CallTable() {
                       {selectedImages.map((image) => (
                         <div key={image.id} className="relative">
                           <img
-                            src={`http://localhost:3001${image.path}`}
+                            src={getImageUrl(image.path)}
                             alt="Imagem do chamado"
                             className="w-full h-auto rounded-lg shadow-lg"
                           />

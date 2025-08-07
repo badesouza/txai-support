@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../config/axios';
-import { API_CONFIG } from '../config/api';
+import { API_CONFIG, getImageUrl } from '../config/api';
 import Swal from 'sweetalert2';
 
 interface CallImage {
@@ -250,7 +250,7 @@ export default function EditCall() {
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Imagens cadastradas</h3>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
                   {images.map((image) => {
-                    const imageUrl = `http://localhost:3001${image.path}`;
+                    const imageUrl = getImageUrl(image.path);
                     console.log('URL da imagem:', imageUrl);
                     return (
                       <div key={image.id} className="relative">

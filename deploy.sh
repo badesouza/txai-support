@@ -25,10 +25,10 @@ if [ -d ".git" ]; then
     git pull origin main
 fi
 
-# Instalar dependências do backend
+# Instalar dependências do backend (incluindo devDependencies para build)
 echo -e "${YELLOW}📦 Instalando dependências do backend...${NC}"
 cd backend
-npm install --production
+npm install
 
 # Build do backend
 echo -e "${YELLOW}🔨 Build do backend...${NC}"

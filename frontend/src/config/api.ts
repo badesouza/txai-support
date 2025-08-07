@@ -6,6 +6,19 @@ export const BASE_URL = process.env.REACT_APP_API_URL;
 // API Configuration
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
+// Função para construir URLs de imagens que funciona em dev e produção
+export const getImageUrl = (imagePath: string): string => {
+  // Se estamos em produção (sem localhost na URL da API)
+  if (API_BASE_URL && !API_BASE_URL.includes('localhost')) {
+    // Extrair o domínio da URL da API
+    const apiUrl = new URL(API_BASE_URL);
+    return `${apiUrl.protocol}//${apiUrl.host}${imagePath}`;
+  }
+  
+  // Em desenvolvimento, usar localhost
+  return `http://localhost:3001${imagePath}`;
+};
+
 export const API_CONFIG = {
   BASE_URL: API_BASE_URL,
   ENDPOINTS: {
