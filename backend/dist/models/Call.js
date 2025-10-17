@@ -1,35 +1,108 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Call = void 0;
-const sequelize_1 = require("sequelize");
-const database_1 = require("../config/database");
-const User_1 = require("./User");
-class Call extends sequelize_1.Model {
-}
-exports.Call = Call;
-Call.init({
-    id: {
-        type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
-        autoIncrement: true,
-        primaryKey: true,
+exports.CallModel = void 0;
+const prisma_1 = require("../lib/prisma");
+exports.CallModel = {
+    async create(callData) {
+        return prisma_1.prisma.call.create({
+            data: {
+                ...callData,
+                status: callData.status || 'OPEN',
+                priority: callData.priority || 'MEDIUM',
+            },
+        });
     },
-    description: {
-        type: sequelize_1.DataTypes.TEXT,
-        allowNull: false,
+    async findById(id) {
+        return prisma_1.prisma.call.findUnique({
+            where: { id },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        phone: true,
+                    },
+                },
+                images: true,
+            },
+        });
     },
-    userId: {
-        type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
-        allowNull: false,
-        references: {
-            model: User_1.User,
-            key: "id",
-        },
+    async findAll() {
+        return prisma_1.prisma.call.findMany({
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        phone: true,
+                    },
+                },
+                images: true,
+            },
+            orderBy: { createdAt: 'desc' },
+        });
     },
-    status: {
-        type: sequelize_1.DataTypes.ENUM("open", "in_service", "completed", "canceled"),
-        defaultValue: "open",
+    async findAllWithPagination({ page, limit, search }) {
+        const skip = (page - 1) * limit;
+        const where = search ? {
+            OR: [
+                { title: { contains: search } },
+                { description: { contains: search } },
+            ],
+        } : {};
+        const [total, calls] = await Promise.all([
+            prisma_1.prisma.call.count({ where }),
+            prisma_1.prisma.call.findMany({
+                where,
+                skip,
+                take: limit,
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            phone: true,
+                        },
+                    },
+                    images: true,
+                },
+                orderBy: { createdAt: 'desc' },
+            }),
+        ]);
+        return {
+            calls,
+            total,
+        };
     },
-}, {
-    tableName: "calls",
-    sequelize: database_1.sequelize,
-});
+    async update(id, callData) {
+        return prisma_1.prisma.call.update({
+            where: { id },
+            data: callData,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        phone: true,
+                    },
+                },
+                images: true,
+            },
+        });
+    },
+    async delete(id) {
+        try {
+            await prisma_1.prisma.call.delete({
+                where: { id },
+            });
+            return true;
+        }
+        catch (error) {
+            return false;
+        }
+    },
+};

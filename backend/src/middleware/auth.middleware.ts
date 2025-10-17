@@ -41,16 +41,17 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
         }
 
         console.log('Verifying token...');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default_secret') as {
-            id: number;
-            name: string;
-            email: string;
-            profile: string;
-        };
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default_secret') as any;
         console.log('Token decoded:', decoded);
 
+        const userId = decoded.id ?? decoded.userId;
+        if (!userId) {
+            console.log('Token payload missing user id');
+            return res.status(401).json({ error: 'Invalid token payload' });
+        }
+
         const user = await prisma.user.findUnique({
-            where: { id: decoded.id }
+            where: { id: userId }
         });
 
         if (!user) {

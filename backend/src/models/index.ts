@@ -2,6 +2,7 @@ import { UserModel } from "./User";
 import { CallModel } from "./Call";
 import { CallImageModel } from "./CallImage";
 import { UserTokenModel } from "./UserToken";
+import { WhatsAppMessageModel } from "./WhatsAppMessage";
 
 // Export models
 export {
@@ -9,4 +10,5 @@ export {
   CallModel,
   CallImageModel,
   UserTokenModel,
+  WhatsAppMessageModel,
 };

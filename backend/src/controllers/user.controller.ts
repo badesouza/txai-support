@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 export class UserController {
     static async register(req: Request, res: Response) {
@@ -261,8 +261,14 @@ export class UserController {
                 phone: updatedUser.phone,
                 profile: updatedUser.profile
             });
-        } catch (error) {
+        } catch (error: any) {
             console.error('Erro ao atualizar usuário:', error);
+            
+            // Se o usuário não foi encontrado (P2025)
+            if (error.code === 'P2025') {
+                return res.status(404).json({ message: 'User not found' });
+            }
+            
             res.status(500).json({ 
                 message: 'Error updating user',
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -440,7 +446,12 @@ export class UserController {
             });
 
             res.json({ message: 'User deleted successfully' });
-        } catch (error) {
+        } catch (error: any) {
+            // Se o usuário não foi encontrado (P2025)
+            if (error.code === 'P2025') {
+                return res.status(404).json({ message: 'User not found' });
+            }
+            
             res.status(500).json({ message: 'Error deleting user' });
         }
     }

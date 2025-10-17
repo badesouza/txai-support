@@ -1,18 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CallImage = exports.Call = exports.User = exports.sequelize = void 0;
-const database_1 = require("../config/database");
-Object.defineProperty(exports, "sequelize", { enumerable: true, get: function () { return database_1.sequelize; } });
+exports.UserTokenModel = exports.CallImageModel = exports.CallModel = exports.UserModel = void 0;
 const User_1 = require("./User");
-Object.defineProperty(exports, "User", { enumerable: true, get: function () { return User_1.User; } });
+Object.defineProperty(exports, "UserModel", { enumerable: true, get: function () { return User_1.UserModel; } });
 const Call_1 = require("./Call");
-Object.defineProperty(exports, "Call", { enumerable: true, get: function () { return Call_1.Call; } });
+Object.defineProperty(exports, "CallModel", { enumerable: true, get: function () { return Call_1.CallModel; } });
 const CallImage_1 = require("./CallImage");
-Object.defineProperty(exports, "CallImage", { enumerable: true, get: function () { return CallImage_1.CallImage; } });
-// Define associations:
-User_1.User.hasMany(Call_1.Call, { foreignKey: "userId", as: "calls" });
-Call_1.Call.belongsTo(User_1.User, { foreignKey: "userId", as: "requester" });
-Call_1.Call.hasMany(CallImage_1.CallImage, { foreignKey: "callId", as: "images" });
-CallImage_1.CallImage.belongsTo(Call_1.Call, { foreignKey: "callId" });
-// Synchronize (optional if using migrations):
-database_1.sequelize.sync({ alter: true });
+Object.defineProperty(exports, "CallImageModel", { enumerable: true, get: function () { return CallImage_1.CallImageModel; } });
+const UserToken_1 = require("./UserToken");
+Object.defineProperty(exports, "UserTokenModel", { enumerable: true, get: function () { return UserToken_1.UserTokenModel; } });

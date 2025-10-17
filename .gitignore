@@ -1,3 +1,7 @@
+# =============================================================================
+# TXAI Support System - Git Ignore
+# =============================================================================
+
 # Dependencies
 node_modules/
 npm-debug.log*
@@ -15,6 +19,7 @@ frontend/dist/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
 
 # Logs
 logs/
@@ -105,13 +110,16 @@ temp/
 ehthumbs.db
 Thumbs.db
 
-# Uploads
+# Uploads and user content
 backend/uploads/
 uploads/
+frontend/public/uploads/
 
-# WhatsApp sessions
+# WhatsApp sessions and tokens
 backend/whatsapp-sessions/
+backend/tokens/
 whatsapp-sessions/
+tokens/
 
 # Database
 *.db
@@ -133,9 +141,112 @@ backend/prisma/migrations/
 *.backup
 *.bak
 
-# Docker
-.dockerignore
-docker-compose.override.yml
+
+
+# =============================================================================
+# Development
+# =============================================================================
 
 # Local development
-.local/ 
+.local/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =============================================================================
+# Build and Deploy
+# =============================================================================
+
+# Build artifacts
+build/
+dist/
+out/
+
+# Deploy scripts (old)
+*.sh
+deploy-*.md
+setup-*.md
+fix-*.md
+WHATSAPP-*.md
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Test results
+test-results/
+junit.xml
+
+# =============================================================================
+# Security
+# =============================================================================
+
+# Secrets
+.secrets/
+secrets/
+*.key
+*.pem
+*.crt
+
+# =============================================================================
+# Performance
+# =============================================================================
+
+# Performance monitoring
+.perf/
+perf/
+
+# Memory dumps
+*.heapsnapshot
+*.heapprofile
+
+# =============================================================================
+# Docker
+# =============================================================================
+
+# Docker volumes
+docker-volumes/
+postgres_data/
+postgres_dev_data/
+
+# Docker logs
+docker-compose.override.yml
+.dockerignore
+
+# Backup files
+backup_*.sql
+*.sql.backup
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+# Coverage reports
+coverage/
+*.lcov
+
+# Test results
+test-results/
+
+# Jest cache
+.jest/
+
+# Test databases
+test.db
+test.sqlite
+test.sqlite3
+
+# Test logs
+test.log 

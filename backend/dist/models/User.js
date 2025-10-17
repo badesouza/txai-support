@@ -3,80 +3,108 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UserModel = exports.User = void 0;
-const sequelize_1 = require("sequelize");
-const database_1 = require("../config/database");
-const bcrypt_1 = __importDefault(require("bcrypt"));
-class User extends sequelize_1.Model {
-}
-exports.User = User;
-User.init({
-    id: {
-        type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
-        autoIncrement: true,
-        primaryKey: true,
-    },
-    email: {
-        type: sequelize_1.DataTypes.STRING(128),
-        allowNull: false,
-        unique: true,
-        validate: { isEmail: true },
-    },
-    name: {
-        type: sequelize_1.DataTypes.STRING(100),
-        allowNull: false,
-    },
-    phone: {
-        type: sequelize_1.DataTypes.STRING(20),
-        allowNull: false,
-    },
-    password: {
-        type: sequelize_1.DataTypes.STRING(256),
-        allowNull: false,
-    },
-    status: {
-        type: sequelize_1.DataTypes.BOOLEAN,
-        defaultValue: true,
-    },
-    profile: {
-        type: sequelize_1.DataTypes.ENUM("admin", "technician", "requester"),
-        allowNull: false,
-        defaultValue: "requester",
-    },
-}, {
-    tableName: "users",
-    sequelize: database_1.sequelize,
-});
-// User Model with business logic
+exports.UserModel = void 0;
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const prisma_1 = require("../lib/prisma");
 exports.UserModel = {
     async create(userData) {
-        const hashedPassword = await bcrypt_1.default.hash(userData.password, 10);
-        return User.create({ ...userData, password: hashedPassword });
-    },
-    async findByEmail(email) {
-        return User.findOne({ where: { email } });
+        const hashedPassword = await bcryptjs_1.default.hash(userData.password, 10);
+        return prisma_1.prisma.user.create({
+            data: {
+                ...userData,
+                password: hashedPassword,
+            },
+        });
     },
     async findById(id) {
-        return User.findByPk(id);
+        return prisma_1.prisma.user.findUnique({
+            where: { id },
+        });
+    },
+    async findByEmail(email) {
+        return prisma_1.prisma.user.findUnique({
+            where: { email },
+        });
+    },
+    async findAll() {
+        return prisma_1.prisma.user.findMany({
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                profile: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+    },
+    async findAllWithPagination({ page, limit, search }) {
+        const skip = (page - 1) * limit;
+        const where = search ? {
+            OR: [
+                { name: { contains: search } },
+                { email: { contains: search } },
+                { phone: { contains: search } },
+            ],
+        } : {};
+        const [total, users] = await Promise.all([
+            prisma_1.prisma.user.count({ where }),
+            prisma_1.prisma.user.findMany({
+                where,
+                skip,
+                take: limit,
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phone: true,
+                    profile: true,
+                    createdAt: true,
+                    updatedAt: true,
+                },
+                orderBy: { createdAt: 'desc' },
+            }),
+        ]);
+        return {
+            users,
+            total,
+        };
     },
     async update(id, userData) {
-        const user = await User.findByPk(id);
-        if (!user)
-            return null;
+        const data = { ...userData };
         if (userData.password) {
-            userData.password = await bcrypt_1.default.hash(userData.password, 10);
+            data.password = await bcryptjs_1.default.hash(userData.password, 10);
         }
-        return user.update(userData);
+        return prisma_1.prisma.user.update({
+            where: { id },
+            data,
+        });
     },
-    async updatePassword(id, newPassword) {
-        const user = await User.findByPk(id);
-        if (!user)
+    async delete(id) {
+        try {
+            await prisma_1.prisma.user.delete({
+                where: { id },
+            });
+            return true;
+        }
+        catch (error) {
             return false;
-        const hashedPassword = await bcrypt_1.default.hash(newPassword, 10);
-        await user.update({ password: hashedPassword });
-        return true;
+        }
     },
-    async verifyPassword(user, password) {
-        return bcrypt_1.default.compare(password, user.password);
-    }
+    async validatePassword(user, password) {
+        try {
+            if (!user || !user.password) {
+                console.log('Usuário ou senha não encontrados');
+                return false;
+            }
+            const isValid = await bcryptjs_1.default.compare(password, user.password);
+            console.log('Resultado da validação da senha:', isValid);
+            return isValid;
+        }
+        catch (error) {
+            console.error('Erro ao validar senha:', error);
+            return false;
+        }
+    },
 };

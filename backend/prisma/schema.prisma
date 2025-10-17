@@ -4,46 +4,48 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id            Int                 @id @default(autoincrement())
-  name          String              @db.VarChar(100)
-  email         String              @unique @db.VarChar(100)
-  password      String              @db.VarChar(100)
-  phone         String              @db.VarChar(20)
-  profile       Profile             @default(USER)
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  calls         Call[]
-  tokens        UserToken[]
-  statusHistory CallStatusHistory[]
+  id               Int                 @id @default(autoincrement())
+  name             String
+  email            String              @unique
+  password         String
+  phone            String
+  profile          Profile             @default(USER)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  calls            Call[]
+  tokens           UserToken[]
+  statusHistory    CallStatusHistory[]
+  whatsappMessages WhatsAppMessage[]
 
   @@map("users")
 }
 
 model Call {
-  id            Int                 @id @default(autoincrement())
-  title         String              @db.VarChar(100)
-  description   String              @db.Text
-  status        String              @db.VarChar(20)
-  priority      String              @db.VarChar(20)
-  userId        Int
-  user          User                @relation(fields: [userId], references: [id])
-  images        CallImage[]
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  statusHistory CallStatusHistory[]
+  id               Int                 @id @default(autoincrement())
+  title            String
+  description      String
+  status           String
+  priority         String
+  userId           Int
+  user             User                @relation(fields: [userId], references: [id])
+  images           CallImage[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  statusHistory    CallStatusHistory[]
+  whatsappMessages WhatsAppMessage[]
 
   @@map("calls")
 }
 
 model CallImage {
   id        Int      @id @default(autoincrement())
-  filename  String   @db.VarChar(255)
-  path      String   @db.VarChar(255)
+  filename  String
+  path      String
   callId    Int
   call      Call     @relation(fields: [callId], references: [id])
   createdAt DateTime @default(now())
@@ -55,7 +57,7 @@ model CallImage {
 model UserToken {
   id        Int      @id @default(autoincrement())
   userId    Int
-  token     String   @unique @db.VarChar(255)
+  token     String   @unique
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -74,6 +76,21 @@ model CallStatusHistory {
   user      User     @relation(fields: [userId], references: [id])
 
   @@map("call_status_history")
+}
+
+model WhatsAppMessage {
+  id          Int      @id @default(autoincrement())
+  callId      Int?
+  userId      Int?
+  phone       String
+  message     String
+  messageType String   @default("text") // text, image, document
+  isFromUser  Boolean  @default(true) // true if from user, false if from system
+  createdAt   DateTime @default(now())
+  call        Call?    @relation(fields: [callId], references: [id])
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@map("whatsapp_messages")
 }
 
 enum Profile {

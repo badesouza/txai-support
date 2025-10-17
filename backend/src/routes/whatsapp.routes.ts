@@ -11,4 +11,10 @@ router.get('/status', whatsappController.getStatus.bind(whatsappController));
 router.post('/send-message', whatsappController.sendMessage.bind(whatsappController));
 router.post('/send-image', whatsappController.sendImage.bind(whatsappController));
 
+// Webhook para receber mensagens do WPPConnect (sem autenticação)
+router.post('/webhook', whatsappController.webhook.bind(whatsappController));
+
+// Histórico de mensagens (com autenticação)
+router.get('/message-history', whatsappController.getMessageHistory.bind(whatsappController));
+
 export default router; 

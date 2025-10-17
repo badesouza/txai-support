@@ -10,5 +10,9 @@ router.post('/login', user_controller_1.UserController.login);
 // Protected routes
 router.get('/profile', auth_middleware_1.authMiddleware, user_controller_1.UserController.getProfile);
 router.put('/profile', auth_middleware_1.authMiddleware, user_controller_1.UserController.updateProfile);
-router.put('/password', auth_middleware_1.authMiddleware, user_controller_1.UserController.updatePassword);
+router.post('/', auth_middleware_1.authMiddleware, user_controller_1.UserController.createUser);
+router.get('/:id', auth_middleware_1.authMiddleware, user_controller_1.UserController.getUserById);
+router.put('/:id', auth_middleware_1.authMiddleware, user_controller_1.UserController.updateUserById);
+router.delete('/:id', auth_middleware_1.authMiddleware, user_controller_1.UserController.deleteUser);
+router.get('/', auth_middleware_1.authMiddleware, user_controller_1.UserController.listAllUsers);
 exports.default = router;

@@ -1,161 +1,344 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CallController = void 0;
-const call_model_1 = require("../models/call.model");
-const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
+const prisma_1 = require("../lib/prisma");
 class CallController {
-    static async create(req, res) {
+    static async listAllCalls(req, res) {
         try {
-            const userId = req.user?.id;
-            if (!userId) {
-                return res.status(401).json({ message: 'User not authenticated' });
+            const page = parseInt(req.query.page) || 1;
+            const limit = parseInt(req.query.limit) || 10;
+            const search = req.query.search;
+            const skip = (page - 1) * limit;
+            console.log('Search request:', { search, page, limit }); // Debug log
+            let where = undefined;
+            if (search) {
+                const searchId = parseInt(search);
+                where = {
+                    OR: [
+                        ...(isNaN(searchId) ? [] : [{ id: searchId }]),
+                        { title: { contains: search } },
+                        { description: { contains: search } }
+                    ]
+                };
             }
-            const callData = {
-                ...req.body,
-                user_id: userId
-            };
-            const call = await call_model_1.CallModel.create(callData);
-            // Handle image uploads if any
-            if (req.files && Array.isArray(req.files)) {
-                const uploadDir = path_1.default.join(__dirname, '../../uploads', call.id.toString());
-                if (!fs_1.default.existsSync(uploadDir)) {
-                    fs_1.default.mkdirSync(uploadDir, { recursive: true });
+            const [calls, total] = await Promise.all([
+                prisma_1.prisma.call.findMany({
+                    skip,
+                    take: limit,
+                    orderBy: {
+                        createdAt: 'desc'
+                    },
+                    where,
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                name: true,
+                                email: true,
+                                phone: true
+                            }
+                        },
+                        images: true
+                    }
+                }),
+                prisma_1.prisma.call.count({
+                    where
+                })
+            ]);
+            // Debug logs
+            console.log('Calls with images:', calls.map(call => ({
+                id: call.id,
+                title: call.title,
+                imagesCount: call.images?.length,
+                images: call.images
+            })));
+            res.json({
+                calls,
+                pagination: {
+                    total,
+                    page,
+                    limit,
+                    totalPages: Math.ceil(total / limit)
                 }
-                for (const file of req.files) {
-                    const fileName = `${Date.now()}-${file.originalname}`;
-                    const filePath = path_1.default.join(uploadDir, fileName);
-                    fs_1.default.writeFileSync(filePath, file.buffer);
-                    await call_model_1.CallModel.addImage(call.id, `/uploads/${call.id}/${fileName}`);
-                }
-            }
-            const images = await call_model_1.CallModel.getImages(call.id);
-            res.status(201).json({ ...call, images });
+            });
         }
         catch (error) {
-            res.status(500).json({ message: 'Error creating call' });
+            console.error('Error listing calls:', error);
+            res.status(500).json({ message: 'Error listing calls', error: error instanceof Error ? error.message : 'Unknown error' });
         }
     }
-    static async getById(req, res) {
+    static async getCallById(req, res) {
         try {
             const callId = parseInt(req.params.id);
-            const call = await call_model_1.CallModel.findById(callId);
+            if (isNaN(callId)) {
+                return res.status(400).json({ message: 'Invalid call ID' });
+            }
+            const call = await prisma_1.prisma.call.findUnique({
+                where: { id: callId },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            phone: true
+                        }
+                    },
+                    images: true
+                }
+            });
             if (!call) {
                 return res.status(404).json({ message: 'Call not found' });
             }
-            // Check if user has permission to view this call
-            if (req.user?.profile !== 'admin' && call.user_id !== req.user?.id) {
-                return res.status(403).json({ message: 'Access denied' });
-            }
-            const images = await call_model_1.CallModel.getImages(callId);
-            res.json({ ...call, images });
+            res.json(call);
         }
         catch (error) {
+            console.error('Error fetching call:', error);
             res.status(500).json({ message: 'Error fetching call' });
         }
     }
-    static async getByUser(req, res) {
+    static async createCall(req, res) {
         try {
+            console.log('=== CREATE CALL ===');
+            console.log('Request files:', req.files);
+            console.log('Request body:', req.body);
             const userId = req.user?.id;
             if (!userId) {
                 return res.status(401).json({ message: 'User not authenticated' });
             }
-            const calls = await call_model_1.CallModel.findByUserId(userId);
-            const callsWithImages = await Promise.all(calls.map(async (call) => {
-                const images = await call_model_1.CallModel.getImages(call.id);
-                return { ...call, images };
-            }));
-            res.json(callsWithImages);
+            const { title, description, status, priority } = req.body;
+            // Validar campos obrigatórios
+            if (!title || !description) {
+                return res.status(400).json({
+                    message: 'Missing required fields',
+                    required: ['title', 'description']
+                });
+            }
+            // Converter status e priority para maiúsculo
+            const formattedStatus = status ? status.toUpperCase() : 'OPEN';
+            const formattedPriority = priority ? priority.toUpperCase() : 'MEDIUM';
+            // Validar valores dos enums
+            if (!['OPEN', 'IN_PROGRESS', 'CLOSED'].includes(formattedStatus)) {
+                return res.status(400).json({
+                    message: 'Invalid status',
+                    validStatuses: ['OPEN', 'IN_PROGRESS', 'CLOSED']
+                });
+            }
+            if (!['LOW', 'MEDIUM', 'HIGH'].includes(formattedPriority)) {
+                return res.status(400).json({
+                    message: 'Invalid priority',
+                    validPriorities: ['LOW', 'MEDIUM', 'HIGH']
+                });
+            }
+            console.log('Criando chamado com dados:', {
+                title,
+                description,
+                status: formattedStatus,
+                priority: formattedPriority,
+                userId,
+                files: req.files
+            });
+            // Criar o chamado com as imagens
+            const call = await prisma_1.prisma.call.create({
+                data: {
+                    title,
+                    description,
+                    status: formattedStatus,
+                    priority: formattedPriority,
+                    userId,
+                    images: {
+                        create: Array.isArray(req.files) ? req.files.map((file) => {
+                            console.log('Criando imagem:', file);
+                            return {
+                                filename: file.filename,
+                                path: file.path
+                            };
+                        }) : []
+                    }
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            phone: true
+                        }
+                    },
+                    images: true
+                }
+            });
+            console.log('Chamado criado:', call);
+            res.status(201).json(call);
         }
         catch (error) {
-            res.status(500).json({ message: 'Error fetching calls' });
+            console.error('Error creating call:', error);
+            res.status(500).json({
+                message: 'Error creating call',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
         }
     }
-    static async update(req, res) {
+    static async updateCall(req, res) {
         try {
             const callId = parseInt(req.params.id);
-            const call = await call_model_1.CallModel.findById(callId);
-            if (!call) {
+            const { title, description, status, priority } = req.body;
+            const userId = req.user?.id;
+            if (!userId) {
+                return res.status(401).json({ message: 'User not authenticated' });
+            }
+            // Buscar o chamado atual para obter o status anterior
+            const currentCall = await prisma_1.prisma.call.findUnique({
+                where: { id: callId }
+            });
+            if (!currentCall) {
                 return res.status(404).json({ message: 'Call not found' });
             }
-            // Check if user has permission to update this call
-            if (req.user?.profile !== 'admin' && call.user_id !== req.user?.id) {
-                return res.status(403).json({ message: 'Access denied' });
-            }
-            const callData = req.body;
-            const updatedCall = await call_model_1.CallModel.update(callId, callData);
-            if (!updatedCall) {
-                return res.status(500).json({ message: 'Error updating call' });
-            }
-            // Handle new image uploads if any
-            if (req.files && Array.isArray(req.files)) {
-                const uploadDir = path_1.default.join(__dirname, '../../uploads', callId.toString());
-                if (!fs_1.default.existsSync(uploadDir)) {
-                    fs_1.default.mkdirSync(uploadDir, { recursive: true });
+            // Atualizar o chamado com as novas imagens
+            const updatedCall = await prisma_1.prisma.call.update({
+                where: { id: callId },
+                data: {
+                    title,
+                    description,
+                    status,
+                    priority,
+                    updatedAt: new Date(),
+                    // Adicionar novas imagens se houver
+                    images: {
+                        create: Array.isArray(req.files) ? req.files.map((file) => ({
+                            filename: file.filename,
+                            path: `/uploads/${file.filename}`
+                        })) : []
+                    }
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true,
+                            phone: true
+                        }
+                    },
+                    images: true
                 }
-                for (const file of req.files) {
-                    const fileName = `${Date.now()}-${file.originalname}`;
-                    const filePath = path_1.default.join(uploadDir, fileName);
-                    fs_1.default.writeFileSync(filePath, file.buffer);
-                    await call_model_1.CallModel.addImage(callId, `/uploads/${callId}/${fileName}`);
-                }
+            });
+            // Se o status foi alterado, registrar no histórico
+            if (status && status !== currentCall.status) {
+                await prisma_1.prisma.callStatusHistory.create({
+                    data: {
+                        callId,
+                        oldStatus: currentCall.status,
+                        newStatus: status,
+                        userId
+                    }
+                });
             }
-            const images = await call_model_1.CallModel.getImages(callId);
-            res.json({ ...updatedCall, images });
+            res.json(updatedCall);
         }
         catch (error) {
+            console.error('Error updating call:', error);
             res.status(500).json({ message: 'Error updating call' });
         }
     }
-    static async delete(req, res) {
+    static async deleteCall(req, res) {
         try {
             const callId = parseInt(req.params.id);
-            const call = await call_model_1.CallModel.findById(callId);
-            if (!call) {
-                return res.status(404).json({ message: 'Call not found' });
+            if (isNaN(callId)) {
+                return res.status(400).json({ message: 'Invalid call ID' });
             }
-            // Check if user has permission to delete this call
-            if (req.user?.profile !== 'admin' && call.user_id !== req.user?.id) {
-                return res.status(403).json({ message: 'Access denied' });
-            }
-            // Delete associated images from filesystem
-            const uploadDir = path_1.default.join(__dirname, '../../uploads', callId.toString());
-            if (fs_1.default.existsSync(uploadDir)) {
-                fs_1.default.rmSync(uploadDir, { recursive: true, force: true });
-            }
-            const success = await call_model_1.CallModel.delete(callId);
-            if (!success) {
-                return res.status(500).json({ message: 'Error deleting call' });
-            }
+            // Delete all related records in a transaction
+            await prisma_1.prisma.$transaction(async (tx) => {
+                // Delete call status history
+                await tx.callStatusHistory.deleteMany({
+                    where: { callId }
+                });
+                // Delete call images
+                await tx.callImage.deleteMany({
+                    where: { callId }
+                });
+                // Finally, delete the call
+                await tx.call.delete({
+                    where: { id: callId }
+                });
+            });
             res.json({ message: 'Call deleted successfully' });
         }
         catch (error) {
-            res.status(500).json({ message: 'Error deleting call' });
+            console.error('Error deleting call:', error);
+            res.status(500).json({
+                message: 'Error deleting call',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
         }
     }
-    static async deleteImage(req, res) {
+    static async getCallStatistics(req, res) {
         try {
-            const imageId = parseInt(req.params.imageId);
+            const { dateStart, dateEnd, status } = req.query;
+            // Build where clause
+            const where = {};
+            if (dateStart && dateEnd) {
+                // Always use UTC for date filtering
+                const startDate = new Date(`${dateStart}T00:00:00.000Z`);
+                const endDate = new Date(`${dateEnd}T23:59:59.999Z`);
+                where.createdAt = {
+                    gte: startDate,
+                    lte: endDate,
+                };
+            }
+            if (status && status !== 'ALL') {
+                where.status = status;
+            }
+            // Get calls grouped by status
+            const calls = await prisma_1.prisma.call.groupBy({
+                by: ['status'],
+                where,
+                _count: {
+                    status: true,
+                },
+            });
+            // Format data for chart
+            const labels = calls.map(call => call.status);
+            const data = calls.map(call => call._count.status);
+            res.json({
+                labels,
+                datasets: [{
+                        label: 'Chamados',
+                        data,
+                        backgroundColor: 'rgba(53, 162, 235, 0.5)',
+                    }],
+            });
+        }
+        catch (error) {
+            console.error('Error getting call statistics:', error);
+            res.status(500).json({
+                message: 'Error getting call statistics',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
+    }
+    static async deleteCallImage(req, res) {
+        try {
             const callId = parseInt(req.params.callId);
-            const call = await call_model_1.CallModel.findById(callId);
-            if (!call) {
-                return res.status(404).json({ message: 'Call not found' });
+            const imageId = parseInt(req.params.imageId);
+            if (isNaN(callId) || isNaN(imageId)) {
+                return res.status(400).json({ message: 'Invalid call ID or image ID' });
             }
-            // Check if user has permission to delete this image
-            if (req.user?.profile !== 'admin' && call.user_id !== req.user?.id) {
-                return res.status(403).json({ message: 'Access denied' });
-            }
-            const success = await call_model_1.CallModel.deleteImage(imageId);
-            if (!success) {
-                return res.status(500).json({ message: 'Error deleting image' });
-            }
+            // Delete the image
+            await prisma_1.prisma.callImage.delete({
+                where: {
+                    id: imageId,
+                    callId: callId
+                }
+            });
             res.json({ message: 'Image deleted successfully' });
         }
         catch (error) {
-            res.status(500).json({ message: 'Error deleting image' });
+            console.error('Error deleting call image:', error);
+            res.status(500).json({
+                message: 'Error deleting call image',
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
         }
     }
 }

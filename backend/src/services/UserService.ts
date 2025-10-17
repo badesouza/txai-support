@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { CreateUserDto, UpdateUserDto } from "../dtos/user";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 export class UserService {
   /**
@@ -12,9 +12,9 @@ export class UserService {
     const where = searchTerm
       ? {
           OR: [
-            { name: { contains: searchTerm, mode: 'insensitive' } },
-            { email: { contains: searchTerm, mode: 'insensitive' } },
-            { phone: { contains: searchTerm, mode: 'insensitive' } }
+            { name: { contains: searchTerm } },
+            { email: { contains: searchTerm } },
+            { phone: { contains: searchTerm } }
           ]
         }
       : {};
