@@ -548,7 +548,7 @@ export class UserController {
         
         // Se tem 12 dígitos (55 + 10 dígitos), formata como (99) 99999-9999
         if (digitsOnly.length === 12 && digitsOnly.startsWith('55')) {
-            return `(${digitsOnly.slice(2, 4)}) ${digitsOnly.slice(4, 9)}-${digitsOnly.slice(9)}`;
+            return `(${digitsOnly.slice(2, 4)}) 9${digitsOnly.slice(4, 9)}-${digitsOnly.slice(9)}`;
         }
         
         // Se tem 11 dígitos (55 + 9 dígitos), formata como (99) 99999-9999
