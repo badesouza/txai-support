@@ -43,10 +43,9 @@ class WppconnectHttpService {
   async startSession(): Promise<void> {
     console.log('🚀 Starting WhatsApp session...');
     try {
-      await this.request('POST', `/api/${this.session}/start-session`, {
-        waitQrCode: true,
-      });
-      console.log('✅ WhatsApp session started successfully');
+      // Oficial: usa Bearer token em /api/:session/start-session
+      const response = await this.request('POST', `/api/${this.session}/start-session`, { waitQrCode: true });
+      console.log('✅ WhatsApp session started:', response.data);
     } catch (error: any) {
       console.error('❌ Error starting WhatsApp session:', error.response?.data || error.message);
       throw error;
@@ -59,10 +58,12 @@ class WppconnectHttpService {
 
   async checkConnection(): Promise<{ connected: boolean; phone: string | null }> {
     try {
-      const data = await this.request<any>('GET', `/api/${this.session}/check-connection-session`);
+      // Oficial: usa Bearer token em /api/:session/check-connection-session
+      const data = await this.request('GET', `/api/${this.session}/check-connection-session`);
       console.log('📡 Connection check response:', data);
-      const connected = data?.status === 'CONNECTED' || data?.connected === true || data?.state === 'CONNECTED';
-      const phone = typeof data?.me === 'string' ? data.me : data?.phone || null;
+      // WPPConnect pode retornar: status: true/false OU status: 'CONNECTED'/'Disconnected'
+      const connected = data?.status === true || data?.status === 'CONNECTED' || data?.connected === true || data?.state === 'CONNECTED' || data?.message === 'Connected';
+      const phone = typeof data?.me === 'string' ? data.me : data?.phone || data?.wid?.user || null;
       return { connected: !!connected, phone: phone ?? null };
     } catch (err: any) {
       console.error('📡 Connection check error:', err.response?.data || err.message);
@@ -78,20 +79,46 @@ class WppconnectHttpService {
 
   async getQrCode(): Promise<string | null> {
     try {
+      // Fluxo oficial: chamar novamente start-session pode retornar o qrCode em base64
+      // Tentativa 1: tentar via start-session para obter qrCode em JSON
+      try {
+        const result = await this.request<any>('POST', `/api/${this.session}/start-session`, { waitQrCode: true });
+        const possible = result?.qrCode || result?.qrcode || result?.base64 || result?.image || null;
+        if (possible) {
+          console.log('📱 QR Code received via start-session');
+          const code = String(possible);
+          return code.startsWith('data:image') ? code : `data:image/png;base64,${code}`;
+        }
+      } catch (e) {
+        // Se falhar, caímos para a rota de qrcode-session
+        console.warn('📱 start-session did not return QR, falling back to qrcode-session');
+      }
+
+      // Tentativa 2: rota qrcode-session com Bearer
       const token = await this.getToken();
       const url = `${this.baseUrl}/api/${this.session}/qrcode-session`;
-      const config: AxiosRequestConfig = { 
-        headers: { Authorization: `Bearer ${token}` },
-        responseType: 'arraybuffer' // Para receber dados binários
+      const config: AxiosRequestConfig = {
+        responseType: 'arraybuffer',
+        headers: { Authorization: `Bearer ${token}` }
       };
-      
       const response = await axios.get(url, config);
-      console.log('📱 QR Code response type:', response.headers['content-type']);
-      
-      // Converter arraybuffer para base64
+      const contentType = response.headers['content-type'];
+      console.log('📱 QR Code response type:', contentType);
+
+      if (contentType?.includes('application/json')) {
+        const jsonData = JSON.parse(Buffer.from(response.data).toString());
+        console.log('📱 QR Code not ready yet:', jsonData.message || jsonData);
+        if (jsonData.message?.includes('initialization') || jsonData.message?.includes('not started')) {
+          console.log('📱 Starting session for the first time...');
+          await this.startSession();
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          return this.getQrCode();
+        }
+        return null;
+      }
+
       const base64 = Buffer.from(response.data).toString('base64');
       const dataUrl = `data:image/png;base64,${base64}`;
-      
       console.log('📱 QR Code generated successfully');
       return dataUrl;
     } catch (err: any) {
@@ -114,9 +141,41 @@ class WppconnectHttpService {
 
   async sendMessage(phone: string, message: string): Promise<any> {
     console.log('📤 Sending message to:', phone);
+    
+    // Format phone number for WhatsApp (Brazilian format)
+    let formattedPhone = phone;
+    
+    // Check if phone already has @c.us suffix
+    const hasSuffix = phone.includes('@c.us');
+    const cleanPhone = phone.replace('@c.us', '');
+    
+    // Remove any non-numeric characters from the clean phone
+    const numericPhone = cleanPhone.replace(/\D/g, '');
+    
+    // If it's a Brazilian number without country code, add it
+    if (numericPhone.length === 11 && numericPhone.startsWith('55')) {
+      // Already has country code, use as is
+      formattedPhone = numericPhone;
+    } else if (numericPhone.length === 11 && !numericPhone.startsWith('55')) {
+      // Brazilian number without country code, add 55
+      formattedPhone = '55' + numericPhone;
+    } else if (numericPhone.length === 10) {
+      // Brazilian number without country code and without area code, add 55
+      formattedPhone = '55' + numericPhone;
+    } else {
+      formattedPhone = numericPhone;
+    }
+    
+    // Add @c.us suffix if it was present in the original phone
+    if (hasSuffix) {
+      formattedPhone = formattedPhone + '@c.us';
+    }
+    
+    console.log('📤 Formatted phone number:', formattedPhone);
+    
     try {
       const data = await this.request('POST', `/api/${this.session}/send-message`, {
-        phone: phone,
+        phone: formattedPhone,
         message: message
       });
       console.log('✅ Message sent successfully');

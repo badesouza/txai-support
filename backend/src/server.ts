@@ -8,6 +8,7 @@ import fs from 'fs';
 import process from 'process';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
+import { wppConnectDirectService } from './services/wppconnect-direct.service';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -95,8 +96,18 @@ app.use(errorHandler);
 
 // 6) Conectar ao banco e iniciar o servidor
 prisma.$connect()
-  .then(() => {
+  .then(async () => {
     console.log('✅ Conectado ao banco de dados');
+
+    // Start WPPConnect Direct Service (async, don't wait)
+    wppConnectDirectService.initialize()
+      .then(() => {
+        console.log('✅ WPPConnect Direct Service started');
+      })
+      .catch((error) => {
+        console.error('❌ Failed to start WPPConnect Direct Service:', error);
+      });
+
     app.listen(port, () => {
       console.log(`🚀 Server rodando em http://localhost:${port}`);
     });

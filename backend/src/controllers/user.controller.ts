@@ -38,10 +38,35 @@ export class UserController {
             console.log('Criando hash da senha...');
             const hashedPassword = await bcrypt.hash(userData.password, 10);
             console.log('Hash da senha criado');
+            console.log('🔧 TESTE - Chegou na normalização!');
+            console.log('🔧 TESTE - userData.phone:', userData.phone);
+
+            // Normalizar telefone: remover formatação e adicionar 55 se necessário
+            const digitsOnly = userData.phone.replace(/\D/g, '');
+            console.log('🔧 TESTE - digitsOnly:', digitsOnly);
+            
+            let normalizedPhone: string;
+            if (digitsOnly.startsWith('55')) {
+                // Já tem código do país
+                normalizedPhone = digitsOnly;
+            } else if (digitsOnly.length === 11) {
+                // 11 dígitos = DDD + 9 dígitos (celular com 9) - REMOVER o 9 e ADICIONAR 55
+                const without9 = digitsOnly.slice(0, 2) + digitsOnly.slice(3); // Remove o 9
+                normalizedPhone = '55' + without9;
+            } else if (digitsOnly.length === 10) {
+                // 10 dígitos = DDD + 8 dígitos (fixo) - ADICIONAR 55
+                normalizedPhone = '55' + digitsOnly;
+            } else {
+                // Outros casos, adicionar 55
+                normalizedPhone = '55' + digitsOnly;
+            }
+            
+            console.log('🔧 TESTE - normalizedPhone:', normalizedPhone);
 
             console.log('Criando usuário com dados:', {
                 ...userData,
                 password: '[REDACTED]',
+                phone: normalizedPhone,
                 profile: userData.profile as 'USER' | 'ADMIN'
             });
 
@@ -50,7 +75,7 @@ export class UserController {
                     name: userData.name,
                     email: userData.email,
                     password: hashedPassword,
-                    phone: userData.phone,
+                    phone: normalizedPhone,
                     profile: userData.profile as 'USER' | 'ADMIN'
                 }
             });
@@ -67,7 +92,7 @@ export class UserController {
                     id: user.id,
                     email: user.email,
                     name: user.name,
-                    phone: user.phone,
+                    phone: UserController.formatPhoneForDisplay(user.phone),
                     profile: user.profile
                 },
                 token
@@ -121,7 +146,7 @@ export class UserController {
                     id: user.id,
                     email: user.email,
                     name: user.name,
-                    phone: user.phone,
+                    phone: UserController.formatPhoneForDisplay(user.phone),
                     profile: user.profile
                 },
                 token
@@ -153,7 +178,7 @@ export class UserController {
                 id: user.id,
                 email: user.email,
                 name: user.name,
-                phone: user.phone,
+                phone: UserController.formatPhoneForDisplay(user.phone),
                 profile: user.profile
             });
         } catch (error) {
@@ -169,6 +194,12 @@ export class UserController {
             }
 
             const { password, ...updateData } = req.body;
+            
+            // Se está atualizando o telefone, normalizar
+            if (updateData.phone) {
+                updateData.phone = UserController.normalizePhoneNumber(updateData.phone);
+            }
+            
             const updatedUser = await prisma.user.update({
                 where: { id: userId },
                 data: updateData
@@ -178,7 +209,7 @@ export class UserController {
                 id: updatedUser.id,
                 email: updatedUser.email,
                 name: updatedUser.name,
-                phone: updatedUser.phone,
+                phone: UserController.formatPhoneForDisplay(updatedUser.phone),
                 profile: updatedUser.profile
             });
         } catch (error) {
@@ -324,8 +355,14 @@ export class UserController {
                 prisma.user.count({ where })
             ]);
 
+            // Formatar telefones para exibição
+            const formattedUsers = users.map(user => ({
+                ...user,
+                phone: UserController.formatPhoneForDisplay(user.phone)
+            }));
+
             res.json({
-                users,
+                users: formattedUsers,
                 pagination: {
                     total,
                     page,
@@ -370,9 +407,33 @@ export class UserController {
             const hashedPassword = await bcrypt.hash(userData.password, 10);
             console.log('Hash da senha criado');
 
+            // Normalizar telefone: remover formatação e adicionar 55 se necessário
+            console.log('🔧 [createUser] ANTES da normalização - userData.phone:', userData.phone);
+            const digitsOnly = userData.phone.replace(/\D/g, '');
+            console.log('🔧 [createUser] digitsOnly:', digitsOnly);
+            
+            let normalizedPhone: string;
+            if (digitsOnly.startsWith('55')) {
+                // Já tem código do país
+                normalizedPhone = digitsOnly;
+            } else if (digitsOnly.length === 11) {
+                // 11 dígitos = DDD + 9 dígitos (celular com 9) - REMOVER o 9 e ADICIONAR 55
+                const without9 = digitsOnly.slice(0, 2) + digitsOnly.slice(3); // Remove o 9
+                normalizedPhone = '55' + without9;
+            } else if (digitsOnly.length === 10) {
+                // 10 dígitos = DDD + 8 dígitos (fixo) - ADICIONAR 55
+                normalizedPhone = '55' + digitsOnly;
+            } else {
+                // Outros casos, adicionar 55
+                normalizedPhone = '55' + digitsOnly;
+            }
+            
+            console.log('🔧 [createUser] normalizedPhone:', normalizedPhone);
+
             console.log('Criando usuário com dados:', {
                 ...userData,
                 password: '[REDACTED]',
+                phone: normalizedPhone,
                 profile: userData.profile
             });
 
@@ -381,7 +442,7 @@ export class UserController {
                     name: userData.name,
                     email: userData.email,
                     password: hashedPassword,
-                    phone: userData.phone,
+                    phone: normalizedPhone,
                     profile: userData.profile
                 }
             });
@@ -391,7 +452,7 @@ export class UserController {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                phone: user.phone,
+                phone: UserController.formatPhoneForDisplay(user.phone),
                 profile: user.profile
             });
         } catch (error) {
@@ -426,7 +487,7 @@ export class UserController {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                phone: user.phone,
+                phone: UserController.formatPhoneForDisplay(user.phone),
                 profile: user.profile
             });
         } catch (error) {
@@ -454,5 +515,48 @@ export class UserController {
             
             res.status(500).json({ message: 'Error deleting user' });
         }
+    }
+
+    /**
+     * Normaliza número de telefone para o formato do banco: 55 + apenas dígitos
+     */
+    private static normalizePhoneNumber(phone: string): string {
+        console.log('🔧 normalizePhoneNumber - Input:', phone);
+        
+        // Remove todos os caracteres não numéricos
+        const digitsOnly = phone.replace(/\D/g, '');
+        console.log('🔧 normalizePhoneNumber - digitsOnly:', digitsOnly);
+        
+        // Se começar com 55, mantém como está
+        if (digitsOnly.startsWith('55')) {
+            console.log('🔧 normalizePhoneNumber - Já tem 55, retornando:', digitsOnly);
+            return digitsOnly;
+        }
+        
+        // Se não começar com 55, adiciona 55 no início
+        const result = '55' + digitsOnly;
+        console.log('🔧 normalizePhoneNumber - Adicionando 55, retornando:', result);
+        return result;
+    }
+
+    /**
+     * Formata número de telefone para exibição: (99) 99999-9999
+     */
+    private static formatPhoneForDisplay(phone: string): string {
+        // Remove todos os caracteres não numéricos
+        const digitsOnly = phone.replace(/\D/g, '');
+        
+        // Se tem 11 dígitos (55 + 9 dígitos), formata como (99) 99999-9999
+        if (digitsOnly.length === 11) {
+            return `(${digitsOnly.slice(2, 4)}) ${digitsOnly.slice(4, 9)}-${digitsOnly.slice(9)}`;
+        }
+        
+        // Se tem 10 dígitos (55 + 8 dígitos), formata como (99) 9999-9999
+        if (digitsOnly.length === 10) {
+            return `(${digitsOnly.slice(2, 4)}) ${digitsOnly.slice(4, 8)}-${digitsOnly.slice(8)}`;
+        }
+        
+        // Se não conseguir formatar, retorna o original
+        return phone;
     }
 } 

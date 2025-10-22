@@ -8,68 +8,58 @@ import InputMask from 'react-input-mask';
 export default function NewUser() {
   const navigate = useNavigate();
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const phoneInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
     password: '',
     confirmPassword: '',
-    profile: 'USER'
+    profile: 'USER' as 'USER' | 'ADMIN'
   });
 
-  // Foca no campo nome quando o componente montar
   useEffect(() => {
-    nameInputRef.current?.focus();
+    if (nameInputRef.current) {
+      nameInputRef.current.focus();
+    }
   }, []);
-
-  const clearForm = () => {
-    setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      password: '',
-      confirmPassword: '',
-      profile: 'USER'
-    });
-    // Foca no campo nome após limpar o formulário
-    nameInputRef.current?.focus();
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (formData.password !== formData.confirmPassword) {
       Swal.fire({
-        title: 'Erro!',
-        text: 'As senhas não coincidem.',
         icon: 'error',
-        confirmButtonText: 'OK'
+        title: 'Erro',
+        text: 'As senhas não coincidem!'
       });
       return;
     }
 
     try {
-      await api.post(API_CONFIG.ENDPOINTS.USERS, formData);
+      const response = await api.post('/users', formData);
       
-      await Swal.fire({
-        title: 'Sucesso!',
-        text: 'Usuário criado com sucesso.',
-        icon: 'success',
-        timer: 1500,
-        showConfirmButton: false
-      });
-
-      // Limpa o formulário após o sucesso
-      clearForm();
-    } catch (error) {
-      console.error('Erro ao criar usuário:', error);
       Swal.fire({
-        title: 'Erro!',
-        text: 'Erro ao criar usuário. Tente novamente.',
+        icon: 'success',
+        title: 'Sucesso',
+        text: 'Usuário criado com sucesso!'
+      }).then(() => {
+        navigate('/users');
+      });
+    } catch (error: any) {
+      console.error('Erro ao criar usuário:', error);
+      
+      let errorMessage = 'Erro ao criar usuário. Tente novamente.';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      }
+      
+      Swal.fire({
         icon: 'error',
-        timer: 1500,
-        showConfirmButton: false
+        title: 'Erro',
+        text: errorMessage
       });
     }
   };
@@ -108,7 +98,7 @@ export default function NewUser() {
 
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              E-mail
+              Email
             </label>
             <input
               type="email"
@@ -127,15 +117,20 @@ export default function NewUser() {
             </label>
             <InputMask
               mask="(99) 99999-9999"
-              type="tel"
-              id="phone"
-              name="phone"
               value={formData.phone}
               onChange={handleChange}
-              required
-              inputRef={phoneInputRef}
-              className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            />
+            >
+              {(inputProps: any) => (
+                <input
+                  {...inputProps}
+                  type="tel"
+                  id="phone"
+                  name="phone"
+                  required
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                />
+              )}
+            </InputMask>
           </div>
 
           <div>
@@ -204,4 +199,4 @@ export default function NewUser() {
       </div>
     </>
   );
-} 
+}
