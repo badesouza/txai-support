@@ -1,0 +1,50 @@
+# Use Node.js 18 Alpine as base image
+FROM node:18-alpine
+
+# Install system dependencies for Playwright and Chromium
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    wget \
+    curl \
+    git \
+    python3 \
+    make \
+    g++
+
+# Set environment variables for Playwright
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Create app directory
+WORKDIR /app
+
+# Install dependencies
+RUN npm init -y && \
+    npm install playwright-chromium && \
+    npm install @wppconnect/wa-js && \
+    npm install redis && \
+    npm install express && \
+    npm install cors
+
+# Create necessary directories
+RUN mkdir -p /app/tokens /app/sessions /app/logs
+
+# Copy WA-JS service and Redis integration
+COPY wa-js-service.js /app/wa-js-service.js
+COPY redis-publisher.js /app/redis-publisher.js
+COPY redis-webhook-server.js /app/redis-webhook-server.js
+
+# Expose port
+EXPOSE 21465
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:21465 || exit 1
+
+# Start WA-JS service
+CMD ["node", "wa-js-service.js"]

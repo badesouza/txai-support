@@ -4,6 +4,7 @@ import api from '../config/axios';
 import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 import InputMask from 'react-input-mask';
+import { formatPhoneForDisplay } from '../utils/phoneFormatter';
 
 export default function EditUser() {
   const navigate = useNavigate();
@@ -16,7 +17,8 @@ export default function EditUser() {
     confirmPassword: '',
     profile: 'USER'
   });
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
+
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -26,7 +28,7 @@ export default function EditUser() {
         setFormData({
           name: user.name,
           email: user.email,
-          phone: user.phone,
+          phone: formatPhoneForDisplay(user.phone),
           password: '',
           confirmPassword: '',
           profile: user.profile

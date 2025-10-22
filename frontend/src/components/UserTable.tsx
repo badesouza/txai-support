@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 import api from '../config/axios';
 import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
+import { formatPhoneForDisplay } from '../utils/phoneFormatter';
 
 interface User {
   id: number;
@@ -22,7 +23,8 @@ export default function UserTable() {
   const itemsPerPage = 10;
   const navigate = useNavigate();
 
-  const fetchUsers = async () => {
+
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -60,7 +62,7 @@ export default function UserTable() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentPage, searchTerm, itemsPerPage]);
 
   // Função para lidar com a mudança no campo de busca
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,7 +76,7 @@ export default function UserTable() {
     }, 300); // Debounce de 300ms
 
     return () => clearTimeout(delayDebounceFn);
-  }, [currentPage, searchTerm]);
+  }, [currentPage, searchTerm, fetchUsers]);
 
   const handleEdit = (userId: number) => {
     navigate(`/users/edit/${userId}`);
@@ -176,7 +178,7 @@ export default function UserTable() {
                     {user.email}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                    {user.phone}
+                    {formatPhoneForDisplay(user.phone)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                     {user.profile.toUpperCase() === 'ADMIN' ? 'Administrador' : 'Usuário'}
