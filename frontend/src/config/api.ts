@@ -6,17 +6,54 @@ export const BASE_URL = process.env.REACT_APP_API_URL;
 // API Configuration
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
-// Função para construir URLs de imagens que funciona em dev e produção
-export const getImageUrl = (imagePath: string): string => {
-  // Se estamos em produção (sem localhost na URL da API)
-  if (API_BASE_URL && !API_BASE_URL.includes('localhost')) {
-    // Extrair o domínio da URL da API
-    const apiUrl = new URL(API_BASE_URL);
-    return `${apiUrl.protocol}//${apiUrl.host}${imagePath}`;
+// Função auxiliar para obter a URL base da API
+const getApiBaseUrl = (): string => {
+  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+  
+  // Se a URL não começa com http, assumir que é um caminho relativo
+  if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+    if (typeof window !== 'undefined') {
+      return `${window.location.protocol}//${window.location.host}${apiUrl}`;
+    }
+    return `http://localhost:3001${apiUrl}`;
   }
   
-  // Em desenvolvimento, usar localhost
-  return `http://localhost:3001${imagePath}`;
+  return apiUrl;
+};
+
+// Função para construir URLs de imagens que funciona em dev e produção
+export const getImageUrl = (imagePath: string): string => {
+  // Validar se imagePath existe
+  if (!imagePath) {
+    return '';
+  }
+
+  try {
+    // Usar a função auxiliar para obter a URL base correta
+    const baseUrl = getApiBaseUrl();
+    
+    // Se a URL base é uma URL completa, extrair o domínio
+    if (baseUrl.startsWith('http://') || baseUrl.startsWith('https://')) {
+      const apiUrl = new URL(baseUrl);
+      return `${apiUrl.protocol}//${apiUrl.host}${imagePath}`;
+    }
+    
+    // Se for um caminho relativo, usar window.location
+    if (typeof window !== 'undefined') {
+      const protocol = window.location.protocol;
+      const host = window.location.host;
+      // No ambiente Docker, as imagens são servidas através do Nginx proxy
+      // que roteia /api/ para o backend, então precisamos usar /api/ antes do caminho
+      return `${protocol}//${host}/api${imagePath}`;
+    }
+    
+    // Fallback para localhost
+    return `http://localhost:3001${imagePath}`;
+  } catch (error) {
+    console.warn('Erro ao construir URL da imagem:', error);
+    // Fallback para localhost se houver erro
+    return `http://localhost:3001${imagePath}`;
+  }
 };
 
 export const API_CONFIG = {

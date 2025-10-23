@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma';
-import { whatsappService } from './whatsapp.service';
+import { wppConnectDirectService } from './wppconnect-direct.service';
 import { WhatsAppMessageModel } from '../models/WhatsAppMessage';
 
 export interface WhatsAppWebhookMessage {
@@ -43,14 +43,7 @@ export class WhatsAppMessageService {
         await this.addMessageToActiveCall(user.id, webhookMessage);
       }
 
-      // Sempre salvar a mensagem no histórico
-      await WhatsAppMessageModel.create({
-        phone: webhookMessage.phone,
-        message: webhookMessage.message,
-        messageType: webhookMessage.messageType || 'text',
-        userId: user.id,
-        isFromUser: true,
-      });
+      // Message is already saved in wppconnect-direct.service.ts
 
       console.log('✅ Message processed successfully');
       
@@ -83,7 +76,7 @@ export class WhatsAppMessageService {
    * Passo 2: Verifica se a mensagem contém palavras-chave para novo chamado
    */
   private static checkForNewCallKeywords(message: string): boolean {
-    const keywords = ['novo', 'novo chamado', 'novo ticket', 'abrir chamado', 'criar chamado'];
+    const keywords = ['novo', 'novo chamado'];
     const lowerMessage = message.toLowerCase().trim();
     
     return keywords.some(keyword => lowerMessage.includes(keyword.toLowerCase()));
@@ -112,8 +105,8 @@ export class WhatsAppMessageService {
    */
   private static async sendCallNumberResponse(phone: string, callId: number) {
     try {
-      const responseMessage = `Chamado criado com sucesso! Número do chamado: #${callId}`;
-      await whatsappService.sendMessage(phone, responseMessage);
+      const responseMessage = `Novo chamado de número #${callId}`;
+      await wppConnectDirectService.sendMessage(phone, responseMessage);
       
       // Salvar mensagem de resposta no histórico
       await WhatsAppMessageModel.create({

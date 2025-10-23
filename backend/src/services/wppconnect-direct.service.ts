@@ -1,5 +1,6 @@
 import { create, SocketState, Whatsapp } from '@wppconnect-team/wppconnect';
 import { WhatsAppMessageModel } from '../models/WhatsAppMessage';
+import { WhatsAppMessageService } from './whatsapp-message.service';
 
 export interface WhatsAppMessage {
   from: string;
@@ -15,6 +16,7 @@ export class WPPConnectDirectService {
   private qrCode: string | null = null;
   private isInitializing: boolean = false;
   private lastQrCodeTime: number = 0;
+  private pendingCallLocations: Map<string, { userId: number; timestamp: number }> = new Map();
 
   /**
    * Initialize WPPConnect and start WhatsApp session
@@ -91,6 +93,7 @@ export class WPPConnectDirectService {
 
       // Set up message event listener
       this.client.onMessage(async (message: any) => {
+        console.log('📱 Message received:', message);
         await this.handleIncomingMessage({
           from: message.from,
           body: message.body || '',
@@ -159,13 +162,7 @@ export class WPPConnectDirectService {
       const userExists = await this.checkUserExists(phone);
       console.log('👤 Usuário existe no banco:', userExists);
       
-      // Save incoming message to database
-      await WhatsAppMessageModel.create({
-        phone,
-        message: message.body,
-        messageType: message.type,
-        isFromUser: true,
-      });
+      // Message will be saved later in the processing logic
 
       // Process message based on type and user existence
       await this.processMessage(message, userExists);
@@ -232,7 +229,7 @@ export class WPPConnectDirectService {
           await this.handleTextMessage(phone, message.body || '', userExists);
           break;
         case 'image':
-          await this.handleImageMessage(phone, userExists);
+          await this.handleImageMessage(phone, userExists, message);
           break;
         case 'video':
           await this.handleVideoMessage(phone, userExists);
@@ -253,17 +250,38 @@ export class WPPConnectDirectService {
     try {
       console.log('📝 Processando mensagem de texto');
       
-      let replyMessage = '';
-      
-      if (userExists) {
-        // Usuário cadastrado - resposta personalizada
-        replyMessage = `Olá! Recebi sua mensagem: "${messageBody}". Como posso ajudá-lo hoje?`;
-      } else {
-        // Usuário não cadastrado - resposta padrão
-        replyMessage = `Olá! Você não está cadastrado em nosso sistema. Para receber atendimento, entre em contato conosco.`;
+      // Limpar estados pendentes expirados (mais de 10 minutos)
+      this.cleanExpiredPendingStates();
+
+      // Verificar se é resposta para local do chamado
+      if (userExists && this.pendingCallLocations.has(phone)) {
+        await this.handleCallLocationResponse(phone, messageBody);
+        return;
       }
-      
-      await this.sendAutoReply(phone, replyMessage);
+
+      // Fluxo profissional: se mensagem for "novo" ou "novo chamado"
+      const lower = (messageBody || '').toLowerCase().trim();
+      const isNewCall = lower.includes('novo chamado') || lower === 'novo';
+
+      if (isNewCall) {
+        if (!userExists) {
+          // Requisito: número não cadastrado → não fazer nada
+          console.log('ℹ️ Mensagem de novo chamado ignorada: usuário não cadastrado.');
+          return;
+        }
+
+        // Iniciar fluxo de criação de chamado com local
+        await this.initiateCallCreationFlow(phone, messageBody);
+        return; // Não enviar auto-reply genérico
+      }
+
+      // Demais casos: buscar último chamado do usuário e atualizar
+      if (userExists) {
+        await this.updateLastCallWithMessage(phone, messageBody);
+      } else {
+        // Usuário não cadastrado - não fazer nada
+        console.log('ℹ️ Mensagem ignorada: usuário não cadastrado.');
+      }
     } catch (error) {
       console.error('❌ Error handling text message:', error);
     }
@@ -272,21 +290,218 @@ export class WPPConnectDirectService {
   /**
    * Handle image messages
    */
-  private async handleImageMessage(phone: string, userExists: boolean): Promise<void> {
+  private async handleImageMessage(phone: string, userExists: boolean, message?: any): Promise<void> {
     try {
       console.log('🖼️ Processando mensagem de imagem');
+      console.log('🖼️ Phone:', phone);
+      console.log('🖼️ User exists:', userExists);
+      console.log('🖼️ Message object:', message);
       
-      let replyMessage = '';
-      
-      if (userExists) {
-        replyMessage = 'Recebi sua imagem! Como posso ajudá-lo com ela?';
-      } else {
-        replyMessage = 'Recebi sua imagem, mas você não está cadastrado em nosso sistema.';
+      if (!userExists) {
+        console.log('ℹ️ Imagem ignorada: usuário não cadastrado.');
+        return;
+      }
+
+      // Processar imagem para último chamado do usuário
+      console.log('🖼️ Chamando processImageForLastCall...');
+      try {
+        await this.processImageForLastCall(phone, message);
+        console.log('🖼️ processImageForLastCall finalizado');
+      } catch (error) {
+        console.error('❌ Erro em processImageForLastCall:', error);
+        console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
       }
       
-      await this.sendAutoReply(phone, replyMessage);
     } catch (error) {
       console.error('❌ Error handling image message:', error);
+    }
+  }
+
+  /**
+   * Processa imagem para o último chamado do usuário
+   */
+  private async processImageForLastCall(phone: string, message: any): Promise<void> {
+    try {
+      console.log('🖼️ Processando imagem para último chamado');
+      console.log('🖼️ Message ID:', message?.id);
+      console.log('🖼️ Message object keys:', message ? Object.keys(message) : 'null');
+      console.log('🖼️ Message type:', message?.type);
+      console.log('🖼️ Message body exists:', !!message?.body);
+      console.log('🖼️ Message body length:', message?.body ? message.body.length : 'null');
+      console.log('🖼️ Message body preview:', message?.body ? message.body.substring(0, 50) + '...' : 'null');
+      
+    // Verificar se message é válido
+    if (!message) {
+      console.log('❌ Message é null ou undefined');
+      return;
+    }
+    
+    // Gerar um ID único se não existir (WPPConnect às vezes não fornece message.id)
+    if (!message.id) {
+      message.id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log('🆔 Gerado ID único para a mensagem:', message.id);
+    }
+      
+      // Buscar usuário pelo telefone
+      console.log('🔍 Buscando usuário pelo telefone:', phone);
+      const user = await this.findUserByPhone(phone);
+      if (!user) {
+        console.log('❌ Usuário não encontrado para processar imagem');
+        return;
+      }
+      console.log('✅ Usuário encontrado:', user.id, user.name);
+
+      // Buscar o último chamado do usuário
+      console.log('🔍 Buscando último chamado do usuário:', user.id);
+      const lastCall = await this.getLastCallByUserId(user.id);
+      if (!lastCall) {
+        console.log('❌ Nenhum chamado encontrado para o usuário');
+        return;
+      }
+      console.log('✅ Último chamado encontrado:', lastCall.id);
+
+      // Baixar e salvar a imagem
+      if (message && message.id) {
+        console.log('📥 Iniciando download da imagem...');
+        console.log('📥 Message ID:', message.id);
+        console.log('📥 Call ID:', lastCall.id);
+        console.log('📥 Message body length:', message.body ? message.body.length : 'null');
+        await this.downloadAndSaveImage(message, lastCall.id);
+
+        // Salvar mensagem de imagem no histórico
+        await WhatsAppMessageModel.create({
+          phone,
+          message: '[Imagem]',
+          messageType: 'image',
+          userId: user.id,
+          callId: lastCall.id,
+          isFromUser: true,
+        });
+
+        console.log('✅ Imagem processada e vinculada ao chamado:', lastCall.id);
+      } else {
+        console.log('❌ Message ou message.id não encontrado');
+        console.log('❌ Message:', message);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error processing image for last call:', error);
+      console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    }
+  }
+
+  /**
+   * Baixa e salva a imagem do WhatsApp
+   */
+  private async downloadAndSaveImage(message: any, callId: number): Promise<void> {
+    try {
+      console.log('📥 Iniciando download da imagem original...');
+      console.log('📥 Message ID:', message.id);
+      console.log('📥 Call ID:', callId);
+      console.log('📥 Message keys:', Object.keys(message));
+      console.log('📥 Message filehash:', message.filehash);
+      console.log('📥 Message mediaKey:', message.mediaKey);
+      
+      // Usar downloadMedia do WPPConnect para baixar a imagem original
+      let mediaData: Buffer;
+      
+      try {
+        console.log('📥 Baixando mídia via WPPConnect downloadMedia...');
+        console.log('📥 Message para downloadMedia:', JSON.stringify({
+          id: message.id,
+          filehash: message.filehash,
+          mediaKey: message.mediaKey,
+          mimetype: message.mimetype,
+          type: message.type
+        }, null, 2));
+        
+        if (!this.client) {
+          throw new Error('WPPConnect client is not initialized');
+        }
+        const downloadedData = await this.client.downloadMedia(message);
+        if (!downloadedData) {
+          throw new Error('Downloaded data is null or undefined');
+        }
+        mediaData = Buffer.from(downloadedData);
+        console.log('✅ Mídia original baixada com sucesso, tamanho:', mediaData.length, 'bytes');
+      } catch (downloadError) {
+        console.log('⚠️ Erro ao baixar via downloadMedia, tentando fallback com body...');
+        console.log('⚠️ Download error:', downloadError);
+        
+        // Fallback: usar o body se downloadMedia falhar
+        if (!message.body || typeof message.body !== 'string') {
+          console.log('❌ Message body não contém dados válidos');
+          return;
+        }
+
+        // Verificar se é base64 válido
+        const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+        if (!base64Regex.test(message.body)) {
+          console.log('❌ Body não é base64 válido');
+          return;
+        }
+
+        mediaData = Buffer.from(message.body, 'base64');
+        console.log('📥 Usando fallback com body (miniatura), tamanho:', mediaData.length, 'bytes');
+      }
+      
+      // Gerar nome único para o arquivo
+      const timestamp = Date.now();
+      const extension = this.getImageExtension(message.mimetype || 'image/jpeg');
+      const filename = `whatsapp-${timestamp}.${extension}`;
+      const path = `/uploads/${filename}`;
+
+      console.log('📥 Salvando arquivo:', filename);
+
+      // Salvar arquivo
+      const fs = require('fs');
+      fs.writeFileSync(`./uploads/${filename}`, mediaData);
+
+      // Salvar referência na tabela call_images
+      await this.saveCallImage(callId, filename, path);
+
+      console.log('✅ Imagem original salva com sucesso:', filename);
+      
+    } catch (error) {
+      console.error('❌ Error downloading and saving image:', error);
+      console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    }
+  }
+
+  /**
+   * Obtém extensão da imagem baseada no mimetype
+   */
+  private getImageExtension(mimetype: string): string {
+    const extensions: { [key: string]: string } = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp'
+    };
+    
+    return extensions[mimetype] || 'jpg';
+  }
+
+  /**
+   * Salva referência da imagem na tabela call_images
+   */
+  private async saveCallImage(callId: number, filename: string, path: string): Promise<void> {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+      
+      await prisma.callImage.create({
+        data: {
+          filename,
+          path,
+          callId
+        }
+      });
+      
+      await prisma.$disconnect();
+    } catch (error) {
+      console.error('❌ Error saving call image:', error);
     }
   }
 
@@ -308,6 +523,229 @@ export class WPPConnectDirectService {
       await this.sendAutoReply(phone, replyMessage);
     } catch (error) {
       console.error('❌ Error handling video message:', error);
+    }
+  }
+
+  /**
+   * Limpa estados pendentes expirados
+   */
+  private cleanExpiredPendingStates(): void {
+    const now = Date.now();
+    const EXPIRATION_TIME = 10 * 60 * 1000; // 10 minutos
+
+    for (const [phone, data] of this.pendingCallLocations.entries()) {
+      if (now - data.timestamp > EXPIRATION_TIME) {
+        this.pendingCallLocations.delete(phone);
+        console.log('🧹 Limpando estado pendente expirado para:', phone);
+      }
+    }
+  }
+
+  /**
+   * Inicia o fluxo de criação de chamado perguntando o local
+   */
+  private async initiateCallCreationFlow(phone: string, messageBody: string): Promise<void> {
+    try {
+      console.log('🔄 Iniciando fluxo de criação de chamado');
+      
+      // Buscar usuário pelo telefone
+      const user = await this.findUserByPhone(phone);
+      if (!user) {
+        console.log('❌ Usuário não encontrado para iniciar criação de chamado');
+        return;
+      }
+
+      // Salvar estado pendente
+      this.pendingCallLocations.set(phone, {
+        userId: user.id,
+        timestamp: Date.now()
+      });
+
+      // Perguntar o local do chamado
+      await this.sendAutoReply(phone, 'Qual o local do chamado?');
+
+      console.log('✅ Fluxo de criação iniciado, aguardando local do chamado');
+      
+    } catch (error) {
+      console.error('❌ Error initiating call creation flow:', error);
+    }
+  }
+
+  /**
+   * Processa a resposta com o local do chamado
+   */
+  private async handleCallLocationResponse(phone: string, location: string): Promise<void> {
+    try {
+      console.log('📍 Processando resposta do local do chamado:', location);
+      
+      const pendingData = this.pendingCallLocations.get(phone);
+      if (!pendingData) {
+        console.log('❌ Dados pendentes não encontrados para o telefone:', phone);
+        return;
+      }
+
+      // Remover do estado pendente
+      this.pendingCallLocations.delete(phone);
+
+      // Criar chamado com o local como título
+      const call = await this.createCallWithLocation(pendingData.userId, location, phone);
+
+      // Responder com número do chamado
+      await this.sendAutoReply(phone, `Novo chamado de número #${call.id}`);
+
+      // Salvar mensagem inicial no histórico
+      await WhatsAppMessageModel.create({
+        phone,
+        message: location,
+        messageType: 'text',
+        userId: pendingData.userId,
+        callId: call.id,
+        isFromUser: true,
+      });
+
+      console.log('✅ Chamado criado com local:', location, 'ID:', call.id);
+      
+    } catch (error) {
+      console.error('❌ Error handling call location response:', error);
+    }
+  }
+
+  /**
+   * Cria um chamado com o local como título
+   */
+  private async createCallWithLocation(userId: number, location: string, phone: string): Promise<any> {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+      
+      const call = await prisma.call.create({
+        data: {
+          title: location, // Local como título
+          description: `Chamado criado via WhatsApp - ${phone}`,
+          status: 'OPEN',
+          priority: 'MEDIUM',
+          userId,
+        },
+      });
+      
+      await prisma.$disconnect();
+      return call;
+    } catch (error) {
+      console.error('❌ Error creating call with location:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Atualiza o último chamado do usuário com a nova mensagem
+   */
+  private async updateLastCallWithMessage(phone: string, messageBody: string): Promise<void> {
+    try {
+      console.log('🔄 Atualizando último chamado com nova mensagem');
+      
+      // Buscar usuário pelo telefone
+      const user = await this.findUserByPhone(phone);
+      if (!user) {
+        console.log('❌ Usuário não encontrado para atualizar chamado');
+        return;
+      }
+
+      // Buscar o último chamado do usuário
+      const lastCall = await this.getLastCallByUserId(user.id);
+      if (!lastCall) {
+        console.log('ℹ️ Nenhum chamado encontrado para o usuário');
+        return;
+      }
+
+      // Atualizar descrição do chamado concatenando com a nova mensagem (apenas para texto)
+      const timestamp = new Date().toLocaleString('pt-BR');
+      const updatedDescription = `${lastCall.description}\n[${timestamp}] ${messageBody}`;
+      
+      await this.updateCallDescription(lastCall.id, updatedDescription);
+
+      // Salvar mensagem na tabela whatsapp_messages
+      await WhatsAppMessageModel.create({
+        phone,
+        message: messageBody,
+        messageType: 'text',
+        userId: user.id,
+        callId: lastCall.id,
+        isFromUser: true,
+      });
+
+      console.log('✅ Chamado atualizado com nova mensagem:', lastCall.id);
+      
+    } catch (error) {
+      console.error('❌ Error updating last call with message:', error);
+    }
+  }
+
+  /**
+   * Busca usuário pelo telefone
+   */
+  private async findUserByPhone(phone: string): Promise<any> {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+      
+      const normalizedPhone = this.normalizePhoneForSearch(phone);
+      
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { phone: phone },
+            { phone: normalizedPhone },
+            { phone: `+${normalizedPhone}` },
+            { phone: `55${normalizedPhone}` },
+          ]
+        }
+      });
+      
+      await prisma.$disconnect();
+      return user;
+    } catch (error) {
+      console.error('❌ Error finding user by phone:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Busca o último chamado do usuário
+   */
+  private async getLastCallByUserId(userId: number): Promise<any> {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+      
+      const lastCall = await prisma.call.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'desc' }
+      });
+      
+      await prisma.$disconnect();
+      return lastCall;
+    } catch (error) {
+      console.error('❌ Error getting last call by user ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Atualiza a descrição do chamado
+   */
+  private async updateCallDescription(callId: number, newDescription: string): Promise<void> {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+      
+      await prisma.call.update({
+        where: { id: callId },
+        data: { description: newDescription }
+      });
+      
+      await prisma.$disconnect();
+    } catch (error) {
+      console.error('❌ Error updating call description:', error);
     }
   }
 

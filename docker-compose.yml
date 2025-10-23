@@ -32,6 +32,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
+      TZ: America/Sao_Paulo
       DATABASE_URL: postgresql://${POSTGRES_USER:-txai}:${POSTGRES_PASSWORD:-txai123}@postgres:5432/${POSTGRES_DB:-txai_support}
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key}
       # WPPConnect direct mode: no external server

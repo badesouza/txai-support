@@ -249,7 +249,7 @@ export default function EditCall() {
               <div className="mb-4">
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Imagens cadastradas</h3>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-                  {images.map((image) => {
+                  {images.filter(image => image.path).map((image) => {
                     const imageUrl = getImageUrl(image.path);
                     console.log('URL da imagem:', imageUrl);
                     return (

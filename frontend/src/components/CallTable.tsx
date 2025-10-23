@@ -317,7 +317,7 @@ export default function CallTable() {
                   >
                     {call.images && call.images.length > 0 ? (
                       <>
-                        {call.images.slice(0, 4).map((image, index) => (
+                        {call.images.slice(0, 4).filter(image => image.path).map((image, index) => (
                           <img
                             key={image.id}
                             src={getImageUrl(image.path)}
@@ -462,7 +462,7 @@ export default function CallTable() {
                       </button>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {selectedImages.map((image) => (
+                      {selectedImages.filter(image => image.path).map((image) => (
                         <div key={image.id} className="relative">
                           <img
                             src={getImageUrl(image.path)}

@@ -43,10 +43,12 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
+    tzdata \
     && rm -rf /var/cache/apk/*
 
 # Set to production environment
 ENV NODE_ENV=production
+ENV TZ=America/Sao_Paulo
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 

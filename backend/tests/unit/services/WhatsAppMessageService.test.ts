@@ -20,7 +20,7 @@ jest.mock('../../../src/lib/prisma', () => ({
 jest.mock('../../../src/models/WhatsAppMessage');
 jest.mock('../../../src/services/whatsapp.service');
 
-const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+const mockPrisma = prisma as any;
 const mockWhatsAppMessageModel = WhatsAppMessageModel as jest.Mocked<typeof WhatsAppMessageModel>;
 const mockWhatsappService = whatsappService as jest.Mocked<typeof whatsappService>;
 
@@ -90,7 +90,7 @@ describe('WhatsAppMessageService', () => {
 
       expect(mockWhatsappService.sendMessage).toHaveBeenCalledWith(
         '5511999999999',
-        'Chamado criado com sucesso! Número do chamado: #1'
+        'Novo chamado de número #1'
       );
 
       expect(mockWhatsAppMessageModel.create).toHaveBeenCalledWith({
@@ -226,9 +226,6 @@ describe('WhatsAppMessageService', () => {
         'NOVO',
         'novo chamado',
         'Novo Chamado',
-        'novo ticket',
-        'abrir chamado',
-        'criar chamado',
       ];
 
       keywords.forEach(keyword => {
@@ -256,6 +253,16 @@ describe('WhatsAppMessageService', () => {
   describe('findUserByPhone', () => {
     it('should find user with different phone formats', async () => {
       const phone = '5511999999999';
+      const mockUser = {
+        id: 1,
+        name: 'Test User',
+        email: 'test@example.com',
+        phone: '5511999999999',
+        profile: 'USER',
+        password: 'hashed',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
       mockPrisma.user.findFirst.mockResolvedValue(mockUser as any);
 
       await (WhatsAppMessageService as any).findUserByPhone(phone);
