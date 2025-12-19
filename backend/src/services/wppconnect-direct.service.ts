@@ -1,12 +1,18 @@
 import { create, SocketState, Whatsapp } from '@wppconnect-team/wppconnect';
 import { WhatsAppMessageModel } from '../models/WhatsAppMessage';
 import { WhatsAppMessageService } from './whatsapp-message.service';
+import * as waJs from '@wppconnect/wa-js';
 
 export interface WhatsAppMessage {
   from: string;
   body: string;
   type: string;
   timestamp: number;
+  id?: string;
+  mediaKey?: string;
+  directPath?: string;
+  mimetype?: string;
+  [key: string]: any; // Allow additional properties from WPPConnect
 }
 
 export class WPPConnectDirectService {
@@ -32,15 +38,21 @@ export class WPPConnectDirectService {
     try {
       console.log('🚀 Initializing WPPConnect Direct Service...');
       
+      const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH || '/usr/bin/chromium-browser';
+      console.log('🌐 Using Chrome Path:', chromePath);
+
       this.client = await create({
         session: this.sessionName,
         headless: true,
         devtools: false,
-        useChrome: true,
+        useChrome: false, // Forçamos false para usar o executablePath manual
         debug: false,
         logQR: false, // Evitar logs no terminal, usar catchQR
-        autoClose: 0, // Disable auto close
-        folderNameToken: this.sessionName, // Persiste token em pasta específica
+        autoClose: false as any, // Disable auto close
+        waitForLogin: false, // Não aguarda o login para retornar o client
+        updatesLog: false,
+        folderNameToken: 'tokens', // Nome da pasta para os tokens
+        mkdirFolderToken: './whatsapp-sessions', // Caminho base para os tokens
         catchQR: (base64Qrimg, asciiQR, attempts, urlCode) => {
           // base64Qrimg já vem no formato data:image/png;base64,AAA...
           console.log('📸 Received QR from WPPConnect (catchQR). attempts:', attempts);
@@ -51,23 +63,9 @@ export class WPPConnectDirectService {
           this.qrCode = qr;
           this.lastQrCodeTime = Date.now();
           console.log('📱 QR Code captured and stored:', qr.substring(0, 50) + '...');
-          console.log('📱 QR Code size:', qr.length, 'characters');
-          console.log('📱 QR Code format:', qr.substring(0, 30));
         },
-        browserArgs: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu',
-          '--disable-web-security',
-          '--disable-features=VizDisplayCompositor',
-          '--force-device-scale-factor=1',
-          '--high-dpi-support=1'
-        ],
         puppeteerOptions: {
+          executablePath: chromePath,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -78,14 +76,15 @@ export class WPPConnectDirectService {
             '--disable-gpu',
             '--disable-web-security',
             '--disable-features=VizDisplayCompositor',
-            '--force-device-scale-factor=1',
-            '--high-dpi-support=1'
+            '--disable-breakpad',
+            '--disable-extensions',
+            '--no-default-browser-check',
+            '--start-maximized',
+            '--disable-infobars',
+            '--window-size=1920,1080',
+            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
           ],
-          defaultViewport: {
-            width: 1280,
-            height: 720,
-            deviceScaleFactor: 1
-          }
+          defaultViewport: null
         }
       });
 
@@ -93,12 +92,17 @@ export class WPPConnectDirectService {
 
       // Set up message event listener
       this.client.onMessage(async (message: any) => {
-        console.log('📱 Message received:', message);
+        console.log('📱 Message received:', JSON.stringify(message, null, 2));
         await this.handleIncomingMessage({
           from: message.from,
           body: message.body || '',
           type: message.type || 'text',
-          timestamp: message.timestamp || Date.now()
+          timestamp: message.timestamp || Date.now(),
+          id: message.id || message.msgId || message.messageId,
+          mediaKey: message.mediaKey || message.mediaData?.mediaKey,
+          directPath: message.directPath || message.mediaData?.directPath,
+          mimetype: message.mimetype || message.mediaData?.mimetype,
+          ...message // Include all other properties
         });
       });
 
@@ -231,6 +235,18 @@ export class WPPConnectDirectService {
         case 'image':
           await this.handleImageMessage(phone, userExists, message);
           break;
+        case 'document':
+          // Documentos podem ser imagens originais (quando enviados como documento)
+          // Verificar se o mimetype é uma imagem
+          const isImageDocument = message.mimetype?.startsWith('image/');
+          if (isImageDocument) {
+            console.log('📄 Documento de imagem detectado - processando como imagem original');
+            await this.handleImageMessage(phone, userExists, message);
+          } else {
+            console.log('📄 Documento não-imagem detectado - tipo:', message.mimetype);
+            await this.handleDocumentMessage(phone, userExists, message);
+          }
+          break;
         case 'video':
           await this.handleVideoMessage(phone, userExists);
           break;
@@ -289,13 +305,17 @@ export class WPPConnectDirectService {
 
   /**
    * Handle image messages
+   * Processa tanto imagens normais (comprimidas) quanto documentos de imagem (originais)
    */
-  private async handleImageMessage(phone: string, userExists: boolean, message?: any): Promise<void> {
+  private async handleImageMessage(phone: string, userExists: boolean, message?: WhatsAppMessage): Promise<void> {
     try {
-      console.log('🖼️ Processando mensagem de imagem');
+      const isDocument = message?.type === 'document';
+      const imageType = isDocument ? '📄 DOCUMENTO DE IMAGEM (ORIGINAL)' : '🖼️ IMAGEM (comprimida)';
+      console.log(`🖼️ Processando ${imageType}`);
       console.log('🖼️ Phone:', phone);
       console.log('🖼️ User exists:', userExists);
-      console.log('🖼️ Message object:', message);
+      console.log('🖼️ Message type:', message?.type);
+      console.log('🖼️ Message mimetype:', message?.mimetype);
       
       if (!userExists) {
         console.log('ℹ️ Imagem ignorada: usuário não cadastrado.');
@@ -305,8 +325,12 @@ export class WPPConnectDirectService {
       // Processar imagem para último chamado do usuário
       console.log('🖼️ Chamando processImageForLastCall...');
       try {
-        await this.processImageForLastCall(phone, message);
-        console.log('🖼️ processImageForLastCall finalizado');
+        if (message) {
+          await this.processImageForLastCall(phone, message);
+          console.log('🖼️ processImageForLastCall finalizado');
+        } else {
+          console.log('❌ Message é undefined');
+        }
       } catch (error) {
         console.error('❌ Erro em processImageForLastCall:', error);
         console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
@@ -320,7 +344,7 @@ export class WPPConnectDirectService {
   /**
    * Processa imagem para o último chamado do usuário
    */
-  private async processImageForLastCall(phone: string, message: any): Promise<void> {
+  private async processImageForLastCall(phone: string, message: WhatsAppMessage): Promise<void> {
     try {
       console.log('🖼️ Processando imagem para último chamado');
       console.log('🖼️ Message ID:', message?.id);
@@ -391,60 +415,129 @@ export class WPPConnectDirectService {
   }
 
   /**
-   * Baixa e salva a imagem do WhatsApp
+   * Baixa e salva a imagem do WhatsApp usando WPPConnect downloadMedia
    */
-  private async downloadAndSaveImage(message: any, callId: number): Promise<void> {
+  private async downloadAndSaveImage(message: WhatsAppMessage, callId: number): Promise<void> {
     try {
       console.log('📥 Iniciando download da imagem original...');
       console.log('📥 Message ID:', message.id);
       console.log('📥 Call ID:', callId);
       console.log('📥 Message keys:', Object.keys(message));
-      console.log('📥 Message filehash:', message.filehash);
       console.log('📥 Message mediaKey:', message.mediaKey);
+      console.log('📥 Message directPath:', message.directPath);
+      console.log('📥 Message mimetype:', message.mimetype);
       
-      // Usar downloadMedia do WPPConnect para baixar a imagem original
+      if (!this.client) {
+        throw new Error('WPPConnect client is not initialized');
+      }
+
       let mediaData: Buffer;
+      let mimetype: string | undefined = message.mimetype;
       
+      // Método 1: Usar downloadMediaByMessageId (retorna base64, mais confiável)
       try {
-        console.log('📥 Baixando mídia via WPPConnect downloadMedia...');
-        console.log('📥 Message para downloadMedia:', JSON.stringify({
-          id: message.id,
-          filehash: message.filehash,
-          mediaKey: message.mediaKey,
-          mimetype: message.mimetype,
-          type: message.type
-        }, null, 2));
+        console.log('📥 Download via WPPConnect.downloadMediaByMessageId (base64)...');
+        const downloadedMedia: any = await (this.client as any).downloadMediaByMessageId(message.id);
         
-        if (!this.client) {
-          throw new Error('WPPConnect client is not initialized');
+        if (downloadedMedia && downloadedMedia.base64) {
+          let base64Data = downloadedMedia.base64;
+          
+          // Remover prefixo data URL se existir
+          if (base64Data.includes(',')) {
+            base64Data = base64Data.split(',')[1];
+          }
+          
+          // Limpar espaços em branco e quebras de linha que podem corromper o base64
+          base64Data = base64Data.trim().replace(/\s/g, '');
+          
+          // Validar base64 antes de converter
+          if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data)) {
+            throw new Error('Base64 data inválido após limpeza');
+          }
+          
+          mediaData = Buffer.from(base64Data, 'base64');
+          mimetype = downloadedMedia.mimetype || message.mimetype;
+          console.log('✅ downloadMediaByMessageId: Imagem baixada com sucesso, tamanho:', mediaData.length, 'bytes');
+          
+          // Validar que é uma imagem válida antes de prosseguir
+          if (!this.validateImageBuffer(mediaData, mimetype)) {
+            throw new Error('Dados baixados não correspondem a uma imagem válida');
+          }
+        } else {
+          throw new Error('downloadMediaByMessageId retornou dados inválidos');
         }
-        const downloadedData = await this.client.downloadMedia(message);
-        if (!downloadedData) {
-          throw new Error('Downloaded data is null or undefined');
-        }
-        mediaData = Buffer.from(downloadedData);
-        console.log('✅ Mídia original baixada com sucesso, tamanho:', mediaData.length, 'bytes');
       } catch (downloadError) {
-        console.log('⚠️ Erro ao baixar via downloadMedia, tentando fallback com body...');
-        console.log('⚠️ Download error:', downloadError);
+        console.log('⚠️ downloadMediaByMessageId falhou, tentando decryptFile como fallback...');
+        console.log('⚠️ DownloadMedia error:', downloadError);
         
-        // Fallback: usar o body se downloadMedia falhar
-        if (!message.body || typeof message.body !== 'string') {
-          console.log('❌ Message body não contém dados válidos');
-          return;
-        }
+        // Fallback: tentar decryptFile (opção 2)
+        try {
+          console.log('📥 Tentando decryptFile...');
+          const mediaBuffer: any = await this.client.decryptFile(message as any);
+          
+          if (mediaBuffer) {
+            // decryptFile pode retornar Buffer, Uint8Array ou string base64
+            if (Buffer.isBuffer(mediaBuffer)) {
+              mediaData = mediaBuffer;
+            } else if (mediaBuffer instanceof Uint8Array) {
+              mediaData = Buffer.from(mediaBuffer);
+            } else if (typeof mediaBuffer === 'string') {
+              // Se for string, pode ser base64
+              let base64Data = mediaBuffer.trim().replace(/\s/g, '');
+              if (base64Data.includes(',')) {
+                base64Data = base64Data.split(',')[1];
+              }
+              mediaData = Buffer.from(base64Data, 'base64');
+            } else {
+              throw new Error('Formato de dados retornado por decryptFile não reconhecido');
+            }
+            
+            // Validar que é uma imagem válida
+            if (!this.validateImageBuffer(mediaData, mimetype)) {
+              throw new Error('Dados do decryptFile não correspondem a uma imagem válida');
+            }
+            
+            console.log('✅ decryptFile: Imagem baixada com sucesso, tamanho:', mediaData.length, 'bytes');
+          } else {
+            throw new Error('decryptFile retornou dados vazios');
+          }
+        } catch (fallbackError) {
+          console.log('⚠️ decryptFile também falhou, usando body (miniatura) como último recurso...');
+          console.log('⚠️ Fallback error:', fallbackError);
+          
+          // Último recurso: usar message.body (miniatura)
+          if (!message.body || typeof message.body !== 'string') {
+            console.log('❌ Message body não contém dados válidos');
+            throw new Error('Não foi possível baixar a imagem: todos os métodos falharam e body está vazio');
+          }
 
-        // Verificar se é base64 válido
-        const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
-        if (!base64Regex.test(message.body)) {
-          console.log('❌ Body não é base64 válido');
-          return;
-        }
+          // Limpar espaços em branco e quebras de linha
+          let cleanedBody = message.body.trim().replace(/\s/g, '');
+          
+          // Verificar se é base64 válido
+          const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+          if (!base64Regex.test(cleanedBody)) {
+            console.log('❌ Body não é base64 válido após limpeza');
+            throw new Error('Body não contém base64 válido');
+          }
 
-        mediaData = Buffer.from(message.body, 'base64');
-        console.log('📥 Usando fallback com body (miniatura), tamanho:', mediaData.length, 'bytes');
+          mediaData = Buffer.from(cleanedBody, 'base64');
+          console.log('📥 Último recurso: Usando body (miniatura), tamanho:', mediaData.length, 'bytes');
+          console.log('⚠️ ATENÇÃO: Esta é uma miniatura, não a imagem comprimida');
+        }
       }
       
+      // Validar que temos dados válidos antes de salvar
+      if (!mediaData || mediaData.length === 0) {
+        throw new Error('Dados da imagem estão vazios ou inválidos');
+      }
+
+      // Verificar se o Buffer é válido (primeiros bytes de uma imagem válida)
+      const isValidImage = this.validateImageBuffer(mediaData, mimetype);
+      if (!isValidImage) {
+        console.log('⚠️ Buffer pode estar corrompido, mas tentando salvar mesmo assim...');
+      }
+
       // Gerar nome único para o arquivo
       const timestamp = Date.now();
       const extension = this.getImageExtension(message.mimetype || 'image/jpeg');
@@ -452,20 +545,79 @@ export class WPPConnectDirectService {
       const path = `/uploads/${filename}`;
 
       console.log('📥 Salvando arquivo:', filename);
+      console.log('📥 Tamanho do buffer:', mediaData.length, 'bytes');
 
-      // Salvar arquivo
-      const fs = require('fs');
-      fs.writeFileSync(`./uploads/${filename}`, mediaData);
+      // Salvar arquivo - garantir escrita binária correta
+      const fs = require('fs').promises;
+      await fs.writeFile(`./uploads/${filename}`, mediaData, { encoding: null, flag: 'w' });
 
       // Salvar referência na tabela call_images
       await this.saveCallImage(callId, filename, path);
 
-      console.log('✅ Imagem original salva com sucesso:', filename);
+      console.log('✅ Imagem salva com sucesso:', filename);
       
     } catch (error) {
       console.error('❌ Error downloading and saving image:', error);
       console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
     }
+  }
+
+  /**
+   * Valida se o buffer contém dados válidos de uma imagem
+   * Verifica os magic bytes (assinaturas de arquivo) comuns
+   */
+  private validateImageBuffer(buffer: Buffer, mimetype?: string): boolean {
+    if (!buffer || buffer.length < 4) {
+      return false;
+    }
+
+    // Magic bytes para diferentes formatos de imagem
+    const magicBytes = {
+      jpeg: [0xFF, 0xD8, 0xFF],
+      png: [0x89, 0x50, 0x4E, 0x47],
+      gif: [0x47, 0x49, 0x46, 0x38], // GIF87a ou GIF89a
+      webp: [0x52, 0x49, 0x46, 0x46], // RIFF (WebP pode ter offset)
+    };
+
+    // Verificar JPEG
+    if (buffer[0] === magicBytes.jpeg[0] && 
+        buffer[1] === magicBytes.jpeg[1] && 
+        buffer[2] === magicBytes.jpeg[2]) {
+      return true;
+    }
+
+    // Verificar PNG
+    if (buffer[0] === magicBytes.png[0] && 
+        buffer[1] === magicBytes.png[1] && 
+        buffer[2] === magicBytes.png[2] && 
+        buffer[3] === magicBytes.png[3]) {
+      return true;
+    }
+
+    // Verificar GIF
+    if (buffer[0] === magicBytes.gif[0] && 
+        buffer[1] === magicBytes.gif[1] && 
+        buffer[2] === magicBytes.gif[2] && 
+        buffer[3] === magicBytes.gif[3]) {
+      return true;
+    }
+
+    // Verificar WebP (RIFF....WEBP)
+    if (buffer.length >= 12 && 
+        buffer[0] === magicBytes.webp[0] && 
+        buffer[1] === magicBytes.webp[1] && 
+        buffer[2] === magicBytes.webp[2] && 
+        buffer[3] === magicBytes.webp[3]) {
+      // WebP também precisa ter "WEBP" no offset 8
+      const webpStr = buffer.toString('ascii', 8, 12);
+      if (webpStr === 'WEBP') {
+        return true;
+      }
+    }
+
+    // Se não encontrou magic bytes conhecidos, retorna false
+    // Mas isso não impede o salvamento, apenas gera um aviso
+    return false;
   }
 
   /**
@@ -523,6 +675,29 @@ export class WPPConnectDirectService {
       await this.sendAutoReply(phone, replyMessage);
     } catch (error) {
       console.error('❌ Error handling video message:', error);
+    }
+  }
+
+  /**
+   * Handle document messages (non-image documents)
+   */
+  private async handleDocumentMessage(phone: string, userExists: boolean, message: WhatsAppMessage): Promise<void> {
+    try {
+      console.log('📄 Processando mensagem de documento');
+      console.log('📄 Mimetype:', message.mimetype);
+      console.log('📄 Filename:', (message as any).filename || 'N/A');
+      
+      if (!userExists) {
+        console.log('ℹ️ Documento ignorado: usuário não cadastrado.');
+        return;
+      }
+
+      // Por enquanto, apenas logamos documentos não-imagem
+      // Pode ser expandido no futuro para salvar documentos também
+      console.log('ℹ️ Documento recebido mas não processado ainda (apenas imagens são processadas)');
+      
+    } catch (error) {
+      console.error('❌ Error handling document message:', error);
     }
   }
 
@@ -852,8 +1027,8 @@ export class WPPConnectDirectService {
       }
     }
     
-    // se já temos qr válido nos ultimos 30s, devolve (reduzido para forçar atualização)
-    if (this.qrCode && (now - this.lastQrCodeTime) < 30000) {
+    // se já temos qr válido nos ultimos 45s, devolve
+    if (this.qrCode && (now - this.lastQrCodeTime) < 45000) {
       console.log('📱 Returning cached QR code:', this.qrCode.substring(0, 50) + '...');
       return this.qrCode;
     }
@@ -862,18 +1037,15 @@ export class WPPConnectDirectService {
     if (!this.client && !this.isInitializing) {
       // iniciar cliente se não iniciado
       console.log('📱 Client not initialized, starting...');
-      await this.initialize();
-      // aguardar um pouco para catchQR rodar (apenas se necessário)
-      // não bloqueie muito tempo no request HTTP; use polling no frontend
+      this.initialize().catch(err => console.error('Error in lazy initialize:', err));
       return 'QR_CODE_GENERATING';
     }
     
-    // se cache expirou, limpar QR antigo para forçar novo
-    if (this.qrCode && (now - this.lastQrCodeTime) >= 30000) {
-      console.log('📱 QR cache expired, clearing old QR to force new generation');
-      this.qrCode = null;
-      this.lastQrCodeTime = 0;
-      return 'QR_CODE_GENERATING';
+    // se cache expirou, limpar QR antigo para forçar novo (catchQR vai atualizar quando o browser gerar o proximo)
+    if (this.qrCode && (now - this.lastQrCodeTime) >= 45000) {
+      console.log('📱 QR cache expired, waiting for next generation from WPPConnect...');
+      // Não limpamos aqui para evitar flicker, o catchQR vai sobrepor quando chegar
+      return this.qrCode;
     }
     
     // se client existe, mas qrCode ainda n foi gerado, sinalizar que está gerando
