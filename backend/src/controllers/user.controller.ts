@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import bcrypt from 'bcryptjs';
+import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/jwt';
 
 export class UserController {
     static async register(req: Request, res: Response) {
@@ -81,10 +82,11 @@ export class UserController {
             });
             console.log('Usuário criado:', user);
 
+            const signOptions: jwt.SignOptions = { expiresIn: JWT_EXPIRES_IN };
             const token = jwt.sign(
                 { id: user.id, email: user.email, profile: user.profile },
-                process.env.JWT_SECRET || 'your-secret-key',
-                { expiresIn: '24h' }
+                JWT_SECRET,
+                signOptions
             );
 
             res.status(201).json({
@@ -135,10 +137,11 @@ export class UserController {
             }
 
             console.log('Login bem sucedido, gerando token...');
+            const signOptions: jwt.SignOptions = { expiresIn: JWT_EXPIRES_IN };
             const token = jwt.sign(
                 { id: user.id, email: user.email, profile: user.profile },
-                process.env.JWT_SECRET || 'your-secret-key',
-                { expiresIn: '24h' }
+                JWT_SECRET,
+                signOptions
             );
 
             res.json({

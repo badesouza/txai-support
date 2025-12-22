@@ -2,7 +2,7 @@
 import { Request, Response } from "express";
 import { prisma } from '../lib/prisma';
 import { Prisma } from '@prisma/client';
-import path from 'path';
+import { storage } from '../storage/storage';
 
 interface Call {
   id: number;
@@ -23,6 +23,24 @@ interface User {
 }
 
 export class CallController {
+  private static async hydrateImages<T extends { images?: Array<{ path: string }> }>(item: T): Promise<T> {
+    if (!item.images || item.images.length === 0) {
+      return item;
+    }
+
+    const images = await Promise.all(
+      item.images.map(async (image) => ({
+        ...image,
+        path: await storage.getFileUrl(image.path),
+      }))
+    );
+
+    return {
+      ...item,
+      images,
+    };
+  }
+
   static async listAllCalls(req: Request, res: Response) {
     try {
       const page = parseInt(req.query.page as string) || 1;
@@ -77,8 +95,10 @@ export class CallController {
         images: call.images
       })));
 
+      const callsWithUrls = await Promise.all(calls.map((call) => CallController.hydrateImages(call)));
+
       res.json({
-        calls,
+        calls: callsWithUrls,
         pagination: {
           total,
           page,
@@ -118,7 +138,8 @@ export class CallController {
         return res.status(404).json({ message: 'Call not found' });
       }
 
-      res.json(call);
+      const callWithUrls = await CallController.hydrateImages(call);
+      res.json(callWithUrls);
     } catch (error) {
       console.error('Error fetching call:', error);
       res.status(500).json({ message: 'Error fetching call' });
@@ -207,7 +228,8 @@ export class CallController {
 
       console.log('Chamado criado:', call);
 
-      res.status(201).json(call);
+      const callWithUrls = await CallController.hydrateImages(call);
+      res.status(201).json(callWithUrls);
     } catch (error) {
       console.error('Error creating call:', error);
       res.status(500).json({ 
@@ -249,7 +271,7 @@ export class CallController {
           images: {
             create: Array.isArray(req.files) ? req.files.map((file: Express.Multer.File) => ({
               filename: file.filename,
-              path: `/uploads/${file.filename}`
+              path: file.path
             })) : []
           }
         },
@@ -278,7 +300,8 @@ export class CallController {
         });
       }
 
-      res.json(updatedCall);
+      const updatedCallWithUrls = await CallController.hydrateImages(updatedCall);
+      res.json(updatedCallWithUrls);
     } catch (error) {
       console.error('Error updating call:', error);
       res.status(500).json({ message: 'Error updating call' });
@@ -381,13 +404,29 @@ export class CallController {
         return res.status(400).json({ message: 'Invalid call ID or image ID' });
       }
 
-      // Delete the image
+      const image = await prisma.callImage.findFirst({
+        where: {
+          id: imageId,
+          callId: callId
+        }
+      });
+
+      if (!image) {
+        return res.status(404).json({ message: 'Image not found' });
+      }
+
       await prisma.callImage.delete({
         where: {
           id: imageId,
           callId: callId
         }
       });
+
+      try {
+        await storage.deleteFile(image.path);
+      } catch (deleteError) {
+        console.warn('Error deleting image file:', deleteError);
+      }
 
       res.json({ message: 'Image deleted successfully' });
     } catch (error) {

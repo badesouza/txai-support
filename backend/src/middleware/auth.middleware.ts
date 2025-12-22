@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
+import { JWT_SECRET } from '../config/jwt';
 
 declare global {
     namespace Express {
@@ -41,7 +42,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
         }
 
         console.log('Verifying token...');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default_secret') as any;
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
         console.log('Token decoded:', decoded);
 
         const userId = decoded.id ?? decoded.userId;

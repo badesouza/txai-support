@@ -3,13 +3,14 @@ import path from 'path';
 import fs from 'fs';
 import { Request, Response, NextFunction } from 'express';
 import process from 'process';
+import { storage } from '../storage/storage';
 
 // Garantir que o diretório de uploads existe (na raiz do backend)
 console.log('=== DIRNAME INFO ===');
 console.log('__dirname:', __dirname);
 console.log('Caminho atual:', process.cwd());
 
-const uploadDir = path.join(process.cwd(), 'uploads');
+const uploadDir = storage.uploadsDir;
 console.log('Caminho da pasta uploads:', uploadDir);
 
 if (!fs.existsSync(uploadDir)) {
@@ -27,26 +28,31 @@ console.log('Configuração do upload:', {
 });
 
 // Configurar o armazenamento
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    console.log('=== MULTER STORAGE ===');
-    console.log('Tentando salvar arquivo em:', uploadDir);
-    console.log('Arquivo recebido:', {
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size
+const generateFilename = (originalName: string) => {
+  const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+  const ext = path.extname(originalName);
+  return `images-${uniqueSuffix}${ext}`;
+};
+
+const multerStorage = storage.driver === 'gcs'
+  ? multer.memoryStorage()
+  : multer.diskStorage({
+      destination: (req, file, cb) => {
+        console.log('=== MULTER STORAGE ===');
+        console.log('Tentando salvar arquivo em:', uploadDir);
+        console.log('Arquivo recebido:', {
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size
+        });
+        cb(null, uploadDir);
+      },
+      filename: (req, file, cb) => {
+        const filename = generateFilename(file.originalname);
+        console.log('Nome do arquivo gerado:', filename);
+        cb(null, filename);
+      }
     });
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Gerar nome único para o arquivo
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const filename = `images-${uniqueSuffix}${ext}`;
-    console.log('Nome do arquivo gerado:', filename);
-    cb(null, filename);
-  }
-});
 
 // Configurar o filtro de arquivos
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
@@ -67,7 +73,7 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
 
 // Criar o middleware de upload
 export const upload = multer({
-  storage,
+  storage: multerStorage,
   fileFilter,
   limits: {
     fileSize: 200 * 1024 * 1024, // 200MB
@@ -91,6 +97,15 @@ export const processUploadedFiles = (req: Request, res: Response, next: NextFunc
   req.files = req.files.map(file => {
     console.log('=== PROCESSING FILE ===');
     console.log('Arquivo original:', file);
+
+    if (storage.driver === 'gcs') {
+      const filename = generateFilename(file.originalname);
+      return {
+        ...file,
+        filename,
+        path: filename,
+      };
+    }
     
     // Extrair apenas o nome do arquivo do caminho completo
     const filename = path.basename(file.path);
@@ -128,5 +143,27 @@ export const processUploadedFiles = (req: Request, res: Response, next: NextFunc
     };
   });
 
+  if (storage.driver === 'gcs') {
+    Promise.all(
+      req.files.map(async (file: Express.Multer.File) => {
+        if (!file.buffer) {
+          throw new Error('Arquivo em memória não encontrado para upload no GCS');
+        }
+        const { relativePath } = await storage.saveBuffer({
+          buffer: file.buffer as Buffer,
+          filename: file.filename,
+          contentType: file.mimetype,
+        });
+        file.path = relativePath;
+      })
+    )
+      .then(() => next())
+      .catch((error) => {
+        console.error('Erro ao enviar arquivo para GCS:', error);
+        next(error);
+      });
+    return;
+  }
+
   next();
-}; 
+};

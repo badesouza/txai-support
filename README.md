@@ -1,241 +1,372 @@
-# 🚀 TXAI Support System
+# TXAI Support
 
-Sistema moderno de suporte a tickets com autenticação de usuários e upload de arquivos.
+Sistema de suporte técnico rodando no Google Cloud Platform (GCP).
 
-## ✨ Funcionalidades
+## 🚀 Início Rápido
 
-- **Gestão de Usuários**
-  - Login/Logout
-  - Recuperação de senha
-  - Gestão de perfil de usuário
-- **Gestão de Tickets de Suporte**
-  - Criar, ler, atualizar, deletar tickets
-  - Upload múltiplo de imagens por ticket
-  - Acompanhamento de status dos tickets
-- **Autenticação Segura**
-  - JWT tokens
-  - Middleware de autenticação
-- **Sistema de Arquivos**
-  - Upload seguro de imagens
-  - Validação de tipos de arquivo
+### Opção 1: Docker Compose (Recomendado)
 
-## 🛠️ Stack Tecnológica
+Sobe todos os serviços (PostgreSQL + Backend + Frontend) com um único comando:
 
-- **Frontend**: React 18 + TypeScript + Tailwind CSS
-- **Backend**: Node.js + Express + TypeScript
-- **Banco de Dados**: MySQL + Prisma ORM
-- **Autenticação**: JWT
-- **Process Manager**: PM2
-- **Proxy Reverso**: Nginx
-- **Deploy**: Hostinger (IP: 31.97.170.240)
-
-## 📁 Estrutura do Projeto
-
-```
-txai-support/
-├── frontend/           # Aplicação React
-├── backend/           # API Node.js
-├── nginx/            # Configurações do Nginx
-├── deploy.sh         # Script de deploy automatizado
-├── backup.sh         # Script de backup
-└── README.md         # Este arquivo
+**macOS/Linux:**
+```bash
+./setup.sh
+# OU manualmente: docker-compose up -d
 ```
 
-## 🚀 Deploy no Hostinger
+**Windows (PowerShell):**
+```powershell
+.\setup.ps1
+# OU manualmente: docker-compose up -d
+```
 
-### Pré-requisitos
+**URLs locais:**
+- **Frontend**: http://localhost:8080
+- **Backend API**: http://localhost:3001
+- **API Health**: http://localhost:3001/api/health
+- **API Docs (Swagger)**: http://localhost:3001/api-docs
+- **PostgreSQL**: localhost:5433
 
-- Conta no Hostinger com plano que suporte Node.js
-- Acesso SSH ao servidor (IP: 31.97.170.240)
-- MySQL disponível
+### Opção 2: Frontend em Modo Desenvolvimento
 
-### Passo a Passo Rápido
-
-1. **Preparar o projeto localmente:**
-
-   ```bash
-   # Build do frontend
-   cd frontend && npm run build
-
-   # Configurar arquivos .env.production
-   # Backend: backend/.env.production
-   # Frontend: frontend/.env.production
-   ```
-
-2. **Upload para o servidor:**
-
-   ```bash
-   # Via SSH (recomendado)
-   ssh u123456789@31.97.170.240
-   cd public_html
-   git clone <seu-repositorio> txai-support
-   cd txai-support
-   ```
-
-3. **Configurar o backend:**
-
-   ```bash
-   cd backend
-   npm install --production
-   npm run build
-
-   # Configurar PM2
-   npm install -g pm2
-   pm2 start ecosystem.config.js --env production
-   pm2 save
-   pm2 startup
-   ```
-
-4. **Configurar Nginx:**
-   ```bash
-   # Copiar configuração do Nginx
-   sudo cp nginx/nginx.conf /etc/nginx/sites-available/txai-support
-   sudo ln -s /etc/nginx/sites-available/txai-support /etc/nginx/sites-enabled/
-   sudo nginx -t
-   sudo systemctl restart nginx
-   ```
-
-### Para atualizações futuras:
+Para desenvolvimento com hot reload:
 
 ```bash
-./deploy.sh
+# Backend e banco via Docker
+docker-compose up -d postgres backend
+
+# Frontend via npm (com hot reload)
+cd frontend
+npm install
+npm start
 ```
 
-## 🛠️ Desenvolvimento Local
+Frontend estará em: http://localhost:3000
 
-### Pré-requisitos
+## 🔐 Credenciais Padrão
 
-- Node.js (v16 ou superior)
-- MySQL
-- npm ou yarn
+O sistema cria automaticamente um usuário administrador:
 
-### Configuração
+- **Email**: `admin@txai.com`
+- **Senha**: `admin123`
 
-1. **Clone o repositório:**
+> ⚠️ **Importante**: Altere essas credenciais em produção!
 
-   ```bash
-   git clone <seu-repositorio>
-   cd txai-support
-   ```
+## 📦 Arquitetura
 
-2. **Configure o backend:**
+### Stack Tecnológica
 
-   ```bash
-   cd backend
-   npm install
+- **Backend**: Node.js + Express + TypeScript + Prisma
+- **Frontend**: React + TypeScript + Ant Design + TailwindCSS
+- **Banco de Dados**: PostgreSQL 15
+- **Container**: Docker + Docker Compose
+- **Infraestrutura**: Google Cloud Platform (GCP)
 
-   # Crie o arquivo .env
-   cp env.example .env
-   # Edite as variáveis de ambiente
+### Ambiente de Produção (GCP)
 
-   # Execute as migrações
-   npx prisma migrate dev
-   npx prisma generate
+- **Frontend**: Firebase Hosting (CDN global + roteamento SPA)
+- **Backend**: Cloud Run (API containerizada serverless)
+- **Banco de Dados**: Cloud SQL (PostgreSQL gerenciado)
+- **Storage**: Cloud Storage (uploads de arquivos)
+- **IaC**: OpenTofu/Terraform
 
-   # Inicie o servidor
-   npm run dev
-   ```
+## 🗄️ Banco de Dados
 
-3. **Configure o frontend:**
+### Migrations e Seeding
 
-   ```bash
-   cd frontend
-   npm install
+O backend executa **automaticamente** ao iniciar:
 
-   # Crie o arquivo .env.local
-   echo "REACT_APP_API_URL=http://localhost:3001/api" > .env.local
+1. ✅ **Migrations** (`npx prisma migrate deploy`)
+2. ✅ **Seed** (`npx prisma db seed`) - cria usuário admin se não existir
 
-   # Inicie o servidor
-   npm start
-   ```
+Não é necessário executar nenhum comando manual após `docker-compose up`!
 
-## 📝 Arquivos de Configuração
+### Seed Manual (se necessário)
 
-### Backend (.env)
+```bash
+# Via Docker
+docker exec txai-backend npx prisma db seed
 
-```env
-NODE_ENV=development
+# Ou localmente no backend
+cd backend
+npx prisma db seed
+```
+
+### Reset do Banco de Dados
+
+```bash
+# Remove volumes e recria tudo
+docker-compose down -v
+docker-compose up -d
+
+# O seed será executado automaticamente
+```
+
+## 🔧 Variáveis de Ambiente
+
+### Desenvolvimento Local (Docker Compose)
+
+Já configuradas no `docker-compose.yml`:
+
+```yaml
+# Backend
+DATABASE_URL=postgresql://txai:txai123@postgres:5432/txai_support
+JWT_SECRET=your-super-secret-jwt-key
+CORS_ORIGINS=http://localhost:3000,http://localhost:8080
 PORT=3001
-DATABASE_URL=mysql://txai:Acaraje123@localhost:3306/txai_support
-JWT_SECRET=your_jwt_secret
-CORS_ORIGIN=http://localhost:3000
-UPLOAD_PATH=./uploads
-```
 
-### Frontend (.env.local)
-
-```env
+# Frontend
 REACT_APP_API_URL=http://localhost:3001/api
-REACT_APP_ENV=development
 ```
 
-## 🔧 Scripts Úteis
+### Produção (GCP)
 
-### Deploy
+Configuradas via Terraform e scripts de deploy:
 
 ```bash
-./deploy.sh          # Deploy automatizado
+# Obrigatórias
+DATABASE_URL=postgresql://...  # Cloud SQL
+JWT_SECRET=<gerado-automaticamente>
+CORS_ORIGINS=https://seu-app.web.app,https://seu-app.firebaseapp.com
+GCS_BUCKET=seu-bucket-uploads
+GCS_PROJECT_ID=seu-projeto-gcp
+
+# Opcionais
+STORAGE_DRIVER=gcs  # ou 'local' para desenvolvimento
+NODE_ENV=production
+PORT=3001
 ```
 
-### Backup
+## ☁️ Deploy para Google Cloud Platform (Do Zero)
+
+Esta seção ensina como configurar e deployar o projeto no GCP partindo de uma conta nova.
+
+### 1. Preparação Inicial (Bootstrapping)
+
+Antes de rodar qualquer script, você precisa preparar seu ambiente local e o projeto no Google Cloud.
+
+#### Passo 1.1: Instalar Ferramentas
+Você precisará ter instalado:
+- [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) (`gcloud`)
+- [OpenTofu](https://opentofu.org/docs/intro/install/) (`tofu`) - alternativa open-source ao Terraform
+- [Node.js & npm](https://nodejs.org/)
+- [Firebase CLI](https://firebase.google.com/docs/cli) (`npm install -g firebase-tools`)
+
+#### Passo 1.2: Criar Projeto e Autenticar
+1. Crie um projeto no [Console do GCP](https://console.cloud.google.com/).
+2. **Ative o Billing** (obrigatório para Cloud Run/SQL).
+3. No seu terminal, faça login e configure o projeto:
 
 ```bash
-./backup.sh          # Backup do banco e arquivos
+# Login no GCP
+gcloud auth login
+gcloud auth application-default login
+
+# Definir projeto ativo
+gcloud config set project SEU_ID_DO_PROJETO
 ```
 
-### PM2 (no servidor)
+#### Passo 1.3: Login no Firebase
+O frontend usa Firebase Hosting. Você precisa logar na CLI:
 
 ```bash
-pm2 status           # Status da aplicação
-pm2 logs txai-backend # Ver logs
-pm2 restart txai-backend # Reiniciar
-pm2 monit            # Monitoramento
+firebase login
+```
+*Isso abrirá o navegador para autenticação.*
+
+### 2. Deploy Automatizado (First Time Deploy)
+
+Criamos um "super script" que faz **tudo** para você: cria buckets, configura permissões (IAM), sobe o banco de dados, deploya o backend e o frontend.
+
+Execute o comando abaixo, substituindo as variáveis:
+
+```bash
+# Variáveis de configuração
+PROJECT_ID="seu-id-do-projeto-gcp"
+GITHUB_OWNER="seu-usuario-github"
+GITHUB_REPO="nome-do-repositorio"
+
+# Executar o script mestre
+./scripts/gcp/first-time-deploy.sh
 ```
 
-## 📊 Monitoramento
+**O que este script faz:**
+1. **Bootstrap:** Cria um bucket para guardar o estado do Terraform (`tfstate`) e configura o acesso do GitHub Actions.
+2. **Infraestrutura:** Usa OpenTofu para criar Cloud Run, Cloud SQL, Cloud Storage e Artifact Registry.
+3. **Backend:** Compila o Docker, sobe para o registro e deploya no Cloud Run.
+4. **Frontend:** Compila o React e deploya no Firebase Hosting.
+5. **Verificação:** Testa se tudo está respondendo corretamente.
 
-### Health Check
+### 3. Configuração Pós-Deploy (Essencial)
 
-- Endpoint: `GET /api/health`
-- Retorna status da aplicação, uptime e versão
+Por segurança, o script gera alguns valores padrão. Você **DEVE** configurar o segredo do JWT para produção:
 
-### Logs
+```bash
+# 1. Gerar um segredo forte
+JWT_SECRET=$(openssl rand -base64 32)
 
-- Backend: `pm2 logs txai-backend`
-- Nginx: `sudo tail -f /var/log/nginx/access.log`
+# 2. Atualizar o backend no Cloud Run
+gcloud run services update txai-backend \
+  --region us-central1 \
+  --update-env-vars JWT_SECRET=$JWT_SECRET
+```
 
-## 🚨 Troubleshooting
+### 4. Usando os Scripts Modulares
 
-### Problemas Comuns
+No dia a dia, você não usará o `first-time-deploy.sh`. Use os scripts específicos em `scripts/gcp/`:
 
-1. **Erro 502 Bad Gateway**
+- **Alterou código do Backend?**
+  ```bash
+  PROJECT_ID=seu-projeto ./scripts/gcp/deploy-backend.sh
+  ```
 
-   - Verificar se o backend está rodando: `pm2 status`
-   - Verificar logs: `pm2 logs txai-backend`
+- **Alterou código do Frontend?**
+  ```bash
+  # Precisa da URL do backend para o build
+  API_URL=https://url-do-seu-backend.run.app/api \
+  ./scripts/gcp/deploy-frontend-firebase.sh
+  ```
 
-2. **Erro de CORS**
+- **Alterou Infraestrutura (Terraform)?**
+  ```bash
+  PROJECT_ID=seu-projeto \
+  TF_STATE_BUCKET=seu-bucket-tfstate \
+  ./scripts/gcp/deploy-all.sh
+  ```
 
-   - Verificar `CORS_ORIGIN` no .env
-   - Verificar configuração do Nginx
+Consulte a [documentação completa em docs/](docs/README.md) para mais detalhes.
 
-3. **Erro de banco de dados MySQL**
+## 📚 Documentação Completa
 
-   - Verificar se MySQL está rodando: `sudo systemctl status mysql`
-   - Executar migrações: `npx prisma migrate deploy`
-   - Verificar conexão: `mysql -u txai -p txai_support`
+Toda a documentação está organizada em `docs/`:
 
-4. **Arquivos não carregam**
-   - Verificar permissões da pasta uploads
-   - Verificar configuração do Nginx
+- **[Visão Geral](docs/README.md)** - Índice completo da documentação
+- **[Guia de Deploy](docs/infra/deployment-guide.md)** - Deploy detalhado no GCP
+- **[Terraform](docs/infra/terraform.md)** - Infraestrutura como código
+- **[Scripts GCP](scripts/gcp/README.md)** - Referência dos scripts de deploy
+- **[Docker](docs/docker.md)** - Configuração e uso do Docker
+- **[Testes](docs/testing.md)** - Como executar os testes
+- **[Troubleshooting](docs/troubleshooting.md)** - Soluções para problemas comuns
+
+## 🧪 Testes
+
+```bash
+# Backend
+cd backend
+npm test
+
+# Frontend
+cd frontend
+npm test
+
+# Todos os testes (requer Docker)
+./scripts/test-all.sh  # Linux/macOS
+.\scripts\test-all.ps1  # Windows
+```
+
+## 🔐 Segurança
+
+### Autenticação JWT
+
+- Tokens gerados com HS256
+- Expiração padrão: 24 horas
+- Secret configurado via `JWT_SECRET`
+- Middleware de autenticação protege endpoints
+
+### CORS
+
+- Configurado dinamicamente baseado no ambiente
+- Produção: apenas domínios Firebase autorizados
+- Desenvolvimento: localhost permitido
+
+### Senhas
+
+- Hash com bcrypt (10 rounds)
+- Nunca armazenadas em texto plano
+- Validação de força de senha recomendada
+
+## 🐛 Troubleshooting
+
+### Erro 401 (Unauthorized) no Frontend
+
+**Causa**: JWT_SECRET diferente entre login e validação.
+
+**Solução**:
+```bash
+# Local: verificar docker-compose.yml
+# GCP: redeployar backend com JWT_SECRET correto
+gcloud run services update txai-backend \
+  --update-env-vars JWT_SECRET=seu-secret
+```
+
+### CORS Blocked
+
+**Causa**: CORS_ORIGINS não inclui a origem do frontend.
+
+**Solução**:
+```bash
+# Adicionar origem ao backend
+CORS_ORIGINS=https://seu-app.web.app,http://localhost:3000 \
+./scripts/gcp/deploy-backend.sh
+```
+
+### Database Connection Failed
+
+**Causa**: DATABASE_URL incorreta ou banco não acessível.
+
+**Solução Local**:
+```bash
+# Verificar se postgres está rodando
+docker-compose ps postgres
+
+# Recriar containers
+docker-compose down -v
+docker-compose up -d
+```
+
+**Solução GCP**:
+```bash
+# Verificar Cloud SQL Proxy
+gcloud sql instances describe INSTANCE_NAME
+
+# Verificar logs do Cloud Run
+gcloud run services logs read txai-backend --limit 50
+```
+
+## 📊 Status do Projeto
+
+✅ **Produção**:
+- Frontend: https://bizybox-gcp-project-dev.web.app
+- Backend: https://txai-backend-*.run.app
+- Infraestrutura: 100% automatizada com Terraform
+- Deploy: Totalmente automatizado com scripts
+
+✅ **Funcionalidades**:
+- Autenticação JWT implementada
+- CORS configurado corretamente
+- Migrations automáticas no startup
+- Seeding automático do admin
+- Upload de imagens (GCS em produção)
+- API REST completa
+- Documentação Swagger
+
+## 🤝 Contribuindo
+
+1. Fork o repositório
+2. Crie uma branch: `git checkout -b feature/nova-funcionalidade`
+3. Commit suas mudanças: `git commit -m 'feat: adiciona nova funcionalidade'`
+4. Push para a branch: `git push origin feature/nova-funcionalidade`
+5. Abra um Pull Request
+
+**Padrão de Commits**: Seguimos [Conventional Commits](https://www.conventionalcommits.org/)
+
+## 📝 Licença
+
+[Insira informações de licença aqui]
 
 ## 📞 Suporte
 
-Para problemas:
-
-1. Verifique os logs: `pm2 logs txai-backend`
-2. Teste a API: `curl http://localhost:3001/api/health`
-3. Verifique configuração: `sudo nginx -t`
-
-## 📄 Licença
-
-MIT License - veja o arquivo LICENSE para detalhes.
+Para dúvidas ou problemas:
+- Abra uma [issue no GitHub](https://github.com/badesouza/txai-support/issues)
+- Consulte a [documentação completa](docs/README.md)
+- Veja o [troubleshooting guide](docs/troubleshooting.md)

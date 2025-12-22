@@ -6,25 +6,42 @@ import { PrismaClient } from '@prisma/client';
 import path from 'path';
 import fs from 'fs';
 import process from 'process';
+import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
 import { wppConnectDirectService } from './services/wppconnect-direct.service';
+import { storage } from './storage/storage';
+import { swaggerSpec } from './config/swagger';
 
 const app = express();
 const prisma = new PrismaClient();
 const port = process.env.PORT || 3001;
 
-// 1) Configurar CORS para permitir seu front
-app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://31.97.170.240',
-    'http://31.97.170.240:3000',
-    'http://31.97.170.240:80',
-    'http://31.97.170.240:443'
-  ],
-  credentials: true,
-}));
+// 1) Configurar CORS (sem reverse proxy no compose)
+const defaultCorsOrigins = ['http://localhost:8080', 'http://localhost:3000'];
+const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+const allowedOrigins = corsOrigins.length > 0
+  ? corsOrigins
+  : process.env.CORS_ORIGIN
+    ? [process.env.CORS_ORIGIN]
+    : defaultCorsOrigins;
+
+const allowedOriginsSet = new Set(allowedOrigins);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOriginsSet.has(origin)) return callback(null, true);
+      return callback(new Error(`CORS bloqueado para origem: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 // Configurar o diretório de uploads
@@ -32,7 +49,7 @@ console.log('=== SERVER UPLOADS INFO ===');
 console.log('__dirname:', __dirname);
 console.log('Caminho atual:', process.cwd());
 
-const uploadsPath = path.join(process.cwd(), 'uploads');
+const uploadsPath = storage.uploadsDir;
 console.log('Caminho da pasta uploads:', uploadsPath);
 
 if (!fs.existsSync(uploadsPath)) {
@@ -56,15 +73,8 @@ app.use(
     maxAge: '30d',
     setHeaders(res, filePath) {
       // Permitir CORS também nos assets
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'http://31.97.170.240',
-        'http://31.97.170.240:3000',
-        'http://31.97.170.240:80',
-        'http://31.97.170.240:443'
-      ];
       const origin = res.req.headers.origin;
-      if (origin && allowedOrigins.includes(origin)) {
+      if (origin && allowedOriginsSet.has(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
       }
       
@@ -88,13 +98,25 @@ app.use('/uploads', (req, res, next) => {
   next();
 });
 
-// 4) Montar rotas da API
+// 4) Montar documentação Swagger
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'TXAI Support API Documentation',
+}));
+
+// Servir OpenAPI JSON
+app.get('/api-docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+
+// 5) Montar rotas da API
 app.use('/api', routes);
 
-// 5) Middleware de tratamento de erro
+// 6) Middleware de tratamento de erro
 app.use(errorHandler);
 
-// 6) Conectar ao banco e iniciar o servidor
+// 7) Conectar ao banco e iniciar o servidor
 prisma.$connect()
   .then(async () => {
     console.log('✅ Conectado ao banco de dados');

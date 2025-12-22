@@ -2,6 +2,7 @@ import { create, SocketState, Whatsapp } from '@wppconnect-team/wppconnect';
 import { WhatsAppMessageModel } from '../models/WhatsAppMessage';
 import { WhatsAppMessageService } from './whatsapp-message.service';
 import * as waJs from '@wppconnect/wa-js';
+import { storage } from '../storage/storage';
 
 export interface WhatsAppMessage {
   from: string;
@@ -40,6 +41,8 @@ export class WPPConnectDirectService {
       
       const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH || '/usr/bin/chromium-browser';
       console.log('🌐 Using Chrome Path:', chromePath);
+      console.log('🌐 Session name:', this.sessionName);
+      console.log('🌐 Creating WPPConnect client...');
 
       this.client = await create({
         session: this.sessionName,
@@ -47,22 +50,33 @@ export class WPPConnectDirectService {
         devtools: false,
         useChrome: false, // Forçamos false para usar o executablePath manual
         debug: false,
-        logQR: false, // Evitar logs no terminal, usar catchQR
+        logQR: true, // TEMP: Enable to see if QR is generated in console
         autoClose: false as any, // Disable auto close
+        disableWelcome: true, // Skip welcome screen
         waitForLogin: false, // Não aguarda o login para retornar o client
         updatesLog: false,
         folderNameToken: 'tokens', // Nome da pasta para os tokens
         mkdirFolderToken: './whatsapp-sessions', // Caminho base para os tokens
         catchQR: (base64Qrimg, asciiQR, attempts, urlCode) => {
           // base64Qrimg já vem no formato data:image/png;base64,AAA...
-          console.log('📸 Received QR from WPPConnect (catchQR). attempts:', attempts);
-          if (!base64Qrimg) return;
+          console.log('📸 ========== QR CODE CALLBACK TRIGGERED ==========');
+          console.log('📸 Attempts:', attempts);
+          console.log('📸 Has base64Qrimg:', !!base64Qrimg);
+          console.log('📸 Base64 length:', base64Qrimg?.length || 0);
+          console.log('📸 Has urlCode:', !!urlCode);
+          
+          if (!base64Qrimg) {
+            console.error('❌ QR Code is empty!');
+            return;
+          }
           
           // normalize: garante prefix data:image...
           const qr = String(base64Qrimg).startsWith('data:image') ? String(base64Qrimg) : `data:image/png;base64,${String(base64Qrimg)}`;
           this.qrCode = qr;
           this.lastQrCodeTime = Date.now();
-          console.log('📱 QR Code captured and stored:', qr.substring(0, 50) + '...');
+          console.log('✅ QR Code captured and stored successfully');
+          console.log('📸 QR preview:', qr.substring(0, 100) + '...');
+          console.log('📸 ===============================================');
         },
         puppeteerOptions: {
           executablePath: chromePath,
@@ -89,6 +103,100 @@ export class WPPConnectDirectService {
       });
 
       console.log('✅ WPPConnect client created successfully');
+      console.log('🔍 Client type:', typeof this.client);
+      console.log('🔍 Client has onMessage:', typeof this.client.onMessage === 'function');
+      console.log('🔍 Client has onStateChange:', typeof this.client.onStateChange === 'function');
+
+      // WORKAROUND: Manual QR code extraction since catchQR doesn't trigger
+      setTimeout(async () => {
+        try {
+          if (!this.isConnected && !this.qrCode) {
+            console.log('🔍 Attempting manual QR code extraction...');
+            const anyClient: any = this.client as any;
+            const page = anyClient?.page || anyClient?.pupPage || anyClient?.waPage;
+            
+            if (page) {
+              // Take screenshot for debugging
+              try {
+                await page.screenshot({ path: '/app/uploads/whatsapp-page.png' });
+                console.log('📸 Screenshot saved to /app/uploads/whatsapp-page.png');
+              } catch (e) {
+                console.log('⚠️ Screenshot failed:', e);
+              }
+              
+              // Try multiple selectors to find QR code
+              const qrData = await page.evaluate(() => {
+                // @ts-ignore - Running in browser context
+                let canvas = document.querySelector('canvas');
+                if (canvas) {
+                  // @ts-ignore
+                  return canvas.toDataURL('image/png');
+                }
+                
+                // Try QR code image
+                // @ts-ignore
+                const qrImg = document.querySelector('img[alt="Scan me!"]') || 
+                              // @ts-ignore
+                              document.querySelector('[data-ref]') ||
+                              // @ts-ignore
+                              document.querySelector('img[src*="qr"]');
+                              
+                if (qrImg) {
+                  // @ts-ignore
+                  return qrImg.src;
+                }
+                
+                return null;
+              }).catch((e: any) => {
+                console.log('⚠️ Page evaluation failed:', e.message);
+                return null;
+              });
+              
+              if (qrData) {
+                console.log('✅ QR Code manually extracted!');
+                console.log('📸 QR Data preview:', qrData.substring(0, 100) + '...');
+                this.qrCode = qrData;
+                this.lastQrCodeTime = Date.now();
+              } else {
+                console.log('⚠️ No QR code found on page');
+                // Log page content for debugging
+                const pageInfo = await page.evaluate(() => {
+                  // @ts-ignore
+                  return {
+                    //url: document.location.href,
+                    // @ts-ignore
+                    title: document.title,
+                    // @ts-ignore
+                    canvasCount: document.querySelectorAll('canvas').length,
+                    // @ts-ignore
+                    imgCount: document.querySelectorAll('img').length
+                  };
+                }).catch(() => ({ error: 'Could not get page info' }));
+                console.log('📄 Page info:', JSON.stringify(pageInfo));
+              }
+            } else {
+              console.log('⚠️ Could not access page object for manual QR extraction');
+            }
+          }
+        } catch (e) {
+          console.log('⚠️ Manual QR extraction error:', e);
+        }
+      }, 3000);
+
+      // Check initial connection state
+      try {
+        const anyClient: any = this.client as any;
+        if (typeof anyClient.getConnectionState === 'function') {
+          const initialState = await anyClient.getConnectionState();
+          console.log('🔍 Initial connection state:', initialState);
+        }
+        if (typeof anyClient.isLoggedIn === 'function') {
+          const loggedIn = await anyClient.isLoggedIn();
+          console.log('🔍 Is logged in:', loggedIn);
+        }
+      } catch (e) {
+        console.log('⚠️ Could not check initial connection state:', e);
+      }
 
       // Set up message event listener
       this.client.onMessage(async (message: any) => {
@@ -129,9 +237,12 @@ export class WPPConnectDirectService {
       });
 
       console.log('✅ WPPConnect Direct Service initialized successfully');
+      console.log('⏳ Waiting for QR code generation or existing session...');
       
     } catch (error) {
       console.error('❌ Error initializing WPPConnect Direct Service:', error);
+      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
+      console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       this.isInitializing = false;
       
       // Retry initialization after a delay
@@ -542,17 +653,17 @@ export class WPPConnectDirectService {
       const timestamp = Date.now();
       const extension = this.getImageExtension(message.mimetype || 'image/jpeg');
       const filename = `whatsapp-${timestamp}.${extension}`;
-      const path = `/uploads/${filename}`;
-
       console.log('📥 Salvando arquivo:', filename);
       console.log('📥 Tamanho do buffer:', mediaData.length, 'bytes');
 
-      // Salvar arquivo - garantir escrita binária correta
-      const fs = require('fs').promises;
-      await fs.writeFile(`./uploads/${filename}`, mediaData, { encoding: null, flag: 'w' });
+      const { relativePath } = await storage.saveBuffer({
+        buffer: mediaData,
+        filename,
+        contentType: message.mimetype || 'image/jpeg',
+      });
 
       // Salvar referência na tabela call_images
-      await this.saveCallImage(callId, filename, path);
+      await this.saveCallImage(callId, filename, relativePath);
 
       console.log('✅ Imagem salva com sucesso:', filename);
       

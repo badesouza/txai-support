@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
-  HomeIcon, 
-  UserIcon, 
-  TicketIcon, 
-  ChartBarIcon, 
-  ArrowLeftOnRectangleIcon,
-  PhoneIcon
-} from '@heroicons/react/24/outline';
+  HomeOutlined, 
+  UserOutlined, 
+  FileTextOutlined, 
+  BarChartOutlined, 
+  LogoutOutlined,
+  PhoneOutlined
+} from '@ant-design/icons';
 import logo from '../logo.svg';
 import Swal from 'sweetalert2';
 
@@ -40,11 +40,11 @@ const MasterPage = ({ children }: { children: React.ReactNode }) => {
   };
 
   const navigation = [
-    { path: '/home', icon: HomeIcon, label: 'Home' },
-    { path: '/calls', icon: TicketIcon, label: 'Chamados' },
-    { path: '/users', icon: UserIcon, label: 'Usuários' },
-    { path: '/reports', icon: ChartBarIcon, label: 'Relatórios' },
-    { path: '/whatsapp', icon: PhoneIcon, label: 'WhatsApp' }
+    { path: '/home', icon: HomeOutlined, label: 'Home' },
+    { path: '/calls', icon: FileTextOutlined, label: 'Chamados' },
+    { path: '/users', icon: UserOutlined, label: 'Usuários' },
+    { path: '/reports', icon: BarChartOutlined, label: 'Relatórios' },
+    { path: '/whatsapp', icon: PhoneOutlined, label: 'WhatsApp' }
   ];
 
   return (
@@ -109,7 +109,7 @@ const MasterPage = ({ children }: { children: React.ReactNode }) => {
               onClick={handleLogout}
               className="flex items-center w-full px-4 py-2 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
             >
-              <ArrowLeftOnRectangleIcon className="w-5 h-5 mr-3" />
+              <LogoutOutlined className="mr-3" style={{ fontSize: '20px' }} />
               Sair
             </button>
           </div>
