@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../lib/prisma';
 import { JWT_SECRET } from '../config/jwt';
+import { UserRepository } from '../repositories';
 
 declare global {
     namespace Express {
         interface Request {
             user?: {
-                id: number;
+                id: string;
                 name: string;
                 email: string;
                 profile: string;
@@ -51,9 +51,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
             return res.status(401).json({ error: 'Invalid token payload' });
         }
 
-        const user = await prisma.user.findUnique({
-            where: { id: userId }
-        });
+        const user = await UserRepository.findById(String(userId));
 
         if (!user) {
             console.log('User not found:', decoded.id);
@@ -80,4 +78,4 @@ export const adminMiddleware = (req: Request, res: Response, next: NextFunction)
         return res.status(403).json({ message: 'Admin access required' });
     }
     next();
-}; 
+};

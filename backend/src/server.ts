@@ -2,7 +2,6 @@
 
 import express from 'express';
 import cors from 'cors';
-import { PrismaClient } from '@prisma/client';
 import path from 'path';
 import fs from 'fs';
 import process from 'process';
@@ -12,13 +11,13 @@ import { errorHandler } from './middleware/error.middleware';
 import { wppConnectDirectService } from './services/wppconnect-direct.service';
 import { storage } from './storage/storage';
 import { swaggerSpec } from './config/swagger';
+import { initializeFirebase, getFirestore } from './lib/firebase';
 
 const app = express();
-const prisma = new PrismaClient();
 const port = process.env.PORT || 3001;
 
 // 1) Configurar CORS (sem reverse proxy no compose)
-const defaultCorsOrigins = ['http://localhost:8080', 'http://localhost:3000'];
+const defaultCorsOrigins = ['http://localhost:8080', 'http://localhost:8081', 'http://localhost:3000'];
 const corsOrigins = (process.env.CORS_ORIGINS ?? '')
   .split(',')
   .map((value) => value.trim())
@@ -116,10 +115,17 @@ app.use('/api', routes);
 // 6) Middleware de tratamento de erro
 app.use(errorHandler);
 
-// 7) Conectar ao banco e iniciar o servidor
-prisma.$connect()
-  .then(async () => {
-    console.log('✅ Conectado ao banco de dados');
+// 7) Initialize Firebase and start server
+async function startServer() {
+  try {
+    // Initialize Firebase
+    initializeFirebase();
+    const db = getFirestore();
+    
+    // Test Firestore connection
+    const testRef = db.collection('_health').doc('check');
+    await testRef.set({ timestamp: new Date(), status: 'ok' });
+    console.log('✅ Conectado ao Firestore');
 
     // Start WPPConnect Direct Service (async, don't wait)
     wppConnectDirectService.initialize()
@@ -133,7 +139,10 @@ prisma.$connect()
     app.listen(port, () => {
       console.log(`🚀 Server rodando em http://localhost:${port}`);
     });
-  })
-  .catch(err => {
-    console.error('❌ Falha ao conectar ao banco:', err);
-  });
+  } catch (err) {
+    console.error('❌ Falha ao iniciar servidor:', err);
+    process.exit(1);
+  }
+}
+
+startServer();

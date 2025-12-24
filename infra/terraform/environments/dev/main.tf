@@ -13,6 +13,8 @@ locals {
     "apigateway.googleapis.com",
     "cloudfunctions.googleapis.com",
     "storage.googleapis.com",
+    "firestore.googleapis.com",
+    "firebaserules.googleapis.com",
   ]
 
   uploads_bucket_name = var.gcs_uploads_bucket_name != "" ? var.gcs_uploads_bucket_name : lower("${var.project_id}-${var.environment_name}-txai-uploads")
@@ -85,6 +87,7 @@ resource "google_project_iam_member" "runtime_roles" {
     "roles/storage.objectAdmin",
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
+    "roles/datastore.user", # For Firestore access
   ])
 
   project = var.project_id
@@ -190,6 +193,21 @@ resource "google_storage_bucket" "uploads" {
   location                    = local.gcs_location
   uniform_bucket_level_access = true
   force_destroy               = false
+
+  depends_on = [google_project_service.apis]
+}
+
+# =============================================================================
+# Firestore Database (Native Mode)
+# =============================================================================
+resource "google_firestore_database" "main" {
+  project     = var.project_id
+  name        = "(default)"
+  location_id = var.firestore_location
+  type        = "FIRESTORE_NATIVE"
+
+  # Enable delete protection in production
+  delete_protection_state = var.environment_name == "prod" ? "DELETE_PROTECTION_ENABLED" : "DELETE_PROTECTION_DISABLED"
 
   depends_on = [google_project_service.apis]
 }

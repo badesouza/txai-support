@@ -1,6 +1,5 @@
-import { prisma } from '../lib/prisma';
 import { wppConnectDirectService } from './wppconnect-direct.service';
-import { WhatsAppMessageModel } from '../models/WhatsAppMessage';
+import { UserRepository, CallRepository, WhatsAppMessageRepository } from '../repositories';
 
 export interface WhatsAppWebhookMessage {
   phone: string;
@@ -35,15 +34,13 @@ export class WhatsAppMessageService {
         const call = await this.createCallFromWhatsApp(user.id, webhookMessage);
         
         // Responder com número do chamado
-        await this.sendCallNumberResponse(webhookMessage.phone, call.id);
+        await this.sendCallNumberResponse(webhookMessage.phone, call.id, user.id);
         
         console.log('✅ New call created:', call.id);
       } else {
         // Passo 4: Adicionar mensagem ao histórico do último chamado ativo
         await this.addMessageToActiveCall(user.id, webhookMessage);
       }
-
-      // Message is already saved in wppconnect-direct.service.ts
 
       console.log('✅ Message processed successfully');
       
@@ -57,19 +54,7 @@ export class WhatsAppMessageService {
    * Passo 1: Busca usuário pelo número de telefone
    */
   private static async findUserByPhone(phone: string) {
-    // Normalizar o número de telefone (remover caracteres especiais)
-    const normalizedPhone = phone.replace(/\D/g, '');
-    
-    return prisma.user.findFirst({
-      where: {
-        OR: [
-          { phone: phone },
-          { phone: normalizedPhone },
-          { phone: `+${normalizedPhone}` },
-          { phone: `55${normalizedPhone}` }, // Brasil
-        ]
-      }
-    });
+    return UserRepository.findByPhone(phone);
   }
 
   /**
@@ -85,35 +70,39 @@ export class WhatsAppMessageService {
   /**
    * Passo 3: Cria um novo chamado a partir de uma mensagem do WhatsApp
    */
-  private static async createCallFromWhatsApp(userId: number, webhookMessage: WhatsAppWebhookMessage) {
+  private static async createCallFromWhatsApp(userId: string, webhookMessage: WhatsAppWebhookMessage) {
     const title = `Chamado via WhatsApp - ${webhookMessage.phone}`;
     const description = `Mensagem: ${webhookMessage.message}`;
 
-    return prisma.call.create({
-      data: {
-        title,
-        description,
-        status: 'OPEN',
-        priority: 'MEDIUM',
-        userId,
-      },
+    const user = await UserRepository.findById(userId);
+
+    return CallRepository.create({
+      title,
+      description,
+      status: 'OPEN',
+      priority: 'MEDIUM',
+      userId,
+      userName: user?.name,
+      userEmail: user?.email,
+      userPhone: user?.phone
     });
   }
 
   /**
    * Envia resposta com o número do chamado
    */
-  private static async sendCallNumberResponse(phone: string, callId: number) {
+  private static async sendCallNumberResponse(phone: string, callId: string, userId: string) {
     try {
-      const responseMessage = `Novo chamado de número #${callId}`;
+      const responseMessage = `Novo chamado de número #${callId.substring(0, 8)}`;
       await wppConnectDirectService.sendMessage(phone, responseMessage);
       
       // Salvar mensagem de resposta no histórico
-      await WhatsAppMessageModel.create({
+      await WhatsAppMessageRepository.create({
         phone,
         message: responseMessage,
         messageType: 'text',
         callId,
+        userId,
         isFromUser: false,
       });
       
@@ -126,32 +115,21 @@ export class WhatsAppMessageService {
   /**
    * Passo 4: Adiciona mensagem ao último chamado ativo do usuário
    */
-  private static async addMessageToActiveCall(userId: number, webhookMessage: WhatsAppWebhookMessage) {
+  private static async addMessageToActiveCall(userId: string, webhookMessage: WhatsAppWebhookMessage) {
     try {
       // Buscar o último chamado ativo do usuário
-      const activeCall = await prisma.call.findFirst({
-        where: {
-          userId,
-          status: {
-            in: ['OPEN', 'IN_PROGRESS']
-          }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
+      const activeCall = await CallRepository.findActiveCallForUser(userId);
 
       if (activeCall) {
         // Atualizar descrição do chamado com a nova mensagem
         const updatedDescription = `${activeCall.description}\n\n[${new Date().toLocaleString()}] ${webhookMessage.message}`;
         
-        await prisma.call.update({
-          where: { id: activeCall.id },
-          data: { description: updatedDescription }
+        await CallRepository.update(activeCall.id, {
+          description: updatedDescription
         });
 
         // Salvar mensagem vinculada ao chamado
-        await WhatsAppMessageModel.create({
+        await WhatsAppMessageRepository.create({
           phone: webhookMessage.phone,
           message: webhookMessage.message,
           messageType: webhookMessage.messageType || 'text',
@@ -172,14 +150,14 @@ export class WhatsAppMessageService {
   /**
    * Obtém histórico de mensagens de um chamado
    */
-  static async getCallMessageHistory(callId: number) {
-    return WhatsAppMessageModel.findByCallId(callId);
+  static async getCallMessageHistory(callId: string) {
+    return WhatsAppMessageRepository.findByCallId(callId);
   }
 
   /**
    * Obtém histórico de mensagens de um telefone
    */
   static async getPhoneMessageHistory(phone: string, limit = 20) {
-    return WhatsAppMessageModel.findByPhone(phone, limit);
+    return WhatsAppMessageRepository.findByPhone(phone, limit);
   }
 }

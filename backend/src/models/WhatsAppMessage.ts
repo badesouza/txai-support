@@ -1,10 +1,11 @@
-import { WhatsAppMessage as PrismaWhatsAppMessage } from '@prisma/client';
-import { prisma } from '../lib/prisma';
+import { WhatsAppMessageRepository } from '../repositories';
+import { WhatsAppMessage } from '../types/models';
 
+// Re-export types for backward compatibility
 export interface WhatsAppMessageAttributes {
-  id: number;
-  callId?: number;
-  userId?: number;
+  id: string;
+  callId?: string;
+  userId?: string;
   phone: string;
   message: string;
   messageType: string;
@@ -13,103 +14,41 @@ export interface WhatsAppMessageAttributes {
 }
 
 export interface WhatsAppMessageCreationAttributes {
-  callId?: number;
-  userId?: number;
+  callId?: string;
+  userId?: string;
   phone: string;
   message: string;
   messageType?: string;
   isFromUser?: boolean;
 }
 
+// Facade for backward compatibility - delegates to repository
 export const WhatsAppMessageModel = {
-  async create(messageData: WhatsAppMessageCreationAttributes): Promise<PrismaWhatsAppMessage> {
-    return prisma.whatsAppMessage.create({
-      data: {
-        ...messageData,
-        messageType: messageData.messageType || 'text',
-        isFromUser: messageData.isFromUser !== undefined ? messageData.isFromUser : true,
-      },
+  async create(messageData: WhatsAppMessageCreationAttributes): Promise<WhatsAppMessage> {
+    return WhatsAppMessageRepository.create({
+      ...messageData,
+      messageType: messageData.messageType || 'text',
+      isFromUser: messageData.isFromUser !== undefined ? messageData.isFromUser : true,
     });
   },
 
-  async findById(id: number): Promise<PrismaWhatsAppMessage | null> {
-    return prisma.whatsAppMessage.findUnique({
-      where: { id },
-      include: {
-        call: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-          },
-        },
-      },
-    });
+  async findById(id: string): Promise<WhatsAppMessage | null> {
+    return WhatsAppMessageRepository.findById(id);
   },
 
-  async findByCallId(callId: number): Promise<PrismaWhatsAppMessage[]> {
-    return prisma.whatsAppMessage.findMany({
-      where: { callId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+  async findByCallId(callId: string): Promise<WhatsAppMessage[]> {
+    return WhatsAppMessageRepository.findByCallId(callId);
   },
 
-  async findByPhone(phone: string, limit = 10): Promise<PrismaWhatsAppMessage[]> {
-    return prisma.whatsAppMessage.findMany({
-      where: { phone },
-      include: {
-        call: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
+  async findByPhone(phone: string, limit = 10): Promise<WhatsAppMessage[]> {
+    return WhatsAppMessageRepository.findByPhone(phone, limit);
   },
 
-  async findAll(): Promise<PrismaWhatsAppMessage[]> {
-    return prisma.whatsAppMessage.findMany({
-      include: {
-        call: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findByUserId(userId: string, limit = 100): Promise<WhatsAppMessage[]> {
+    return WhatsAppMessageRepository.findByUserId(userId, limit);
   },
 
-  async delete(id: number): Promise<boolean> {
-    try {
-      await prisma.whatsAppMessage.delete({
-        where: { id },
-      });
-      return true;
-    } catch (error) {
-      return false;
-    }
+  async delete(id: string): Promise<boolean> {
+    return WhatsAppMessageRepository.delete(id);
   },
 };

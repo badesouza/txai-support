@@ -132,3 +132,13 @@ variable "service_accounts" {
     runtime_whatsapp = "runtime-whatsapp"
   }
 }
+
+# =============================================================================
+# Firestore Configuration
+# =============================================================================
+
+variable "firestore_location" {
+  type        = string
+  description = "Firestore database location (should match region for latency)"
+  default     = "nam5" # US multi-region - use "us-central" for single region
+}
