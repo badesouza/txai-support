@@ -1,169 +1,158 @@
 # Troubleshooting Guide
 
-Guia de solução de problemas comuns durante desenvolvimento e deploy.
+Common issues and their solutions.
 
-## Sumário
-- [Auth & JWT (Erro 401)](#auth--jwt-erro-401)
-- [CORS (Cross-Origin Resource Sharing)](#cors-cross-origin-resource-sharing)
-- [Banco de Dados (Connection Failed)](#banco-de-dados-connection-failed)
-- [Deploy GCP (Cloud Run/Build)](#deploy-gcp-cloud-runbuild)
-- [Frontend (Firebase/React)](#frontend-firebasereact)
+## Table of Contents
+- [401 Unauthorized](#401-unauthorized)
+- [CORS Errors](#cors-errors)
+- [Database Issues](#database-issues)
+- [Storage Issues](#storage-issues)
+- [Deploy Issues](#deploy-issues)
 
 ---
 
-## Auth & JWT (Erro 401)
+## 401 Unauthorized
 
-### Sintoma
-Frontend recebe `401 Unauthorized` ao acessar endpoints protegidos (`/api/users`, `/api/calls`), mesmo após login bem-sucedido.
+### Symptom
+Frontend receives 401 errors on protected endpoints (`/api/users`, `/api/calls`) after login.
 
-### Causa
-Mismatch na assinatura do token JWT. O segredo usado para **gerar** o token (login) é diferente do usado para **validar** (middleware).
+### Cause
+JWT token mismatch - usually an old token signed with a different `JWT_SECRET`.
 
-### Solução
+### Solution
 
-#### 1. Padronização do Código (Já aplicado)
-Certifique-se de que ambos usam a mesma configuração:
-```typescript
-// backend/src/config/jwt.ts
-export const JWT_SECRET = process.env.JWT_SECRET || 'fallback-dev-secret';
-```
+**Local:** Clear browser localStorage and login again:
+1. DevTools → Application → Local Storage
+2. Delete `token` entry
+3. Login again
 
-#### 2. Ambiente de Produção (Cloud Run)
-Se o erro ocorre em produção, é porque a variável de ambiente `JWT_SECRET` não foi definida ou foi alterada.
-
-**Correção:**
+**Cloud:** Ensure `JWT_SECRET` is consistent:
 ```bash
-# Gere um secret seguro
+# Generate new secret
 NEW_SECRET=$(openssl rand -base64 32)
 
-# Atualize o serviço
+# Update Cloud Run
 gcloud run services update txai-backend \
   --region us-central1 \
   --update-env-vars JWT_SECRET=$NEW_SECRET
 ```
 
-> **Nota:** Todos os usuários precisarão fazer login novamente após a mudança.
+> Note: All users must login again after changing the secret.
 
 ---
 
-## CORS (Cross-Origin Resource Sharing)
+## CORS Errors
 
-### Sintoma
-Erro no console do browser: `Access to XMLHttpRequest at '...' from origin '...' has been blocked by CORS policy`.
+### Symptom
+Browser console shows: `Access to XMLHttpRequest blocked by CORS policy`
 
-### Causa
-O backend não está configurado para aceitar requisições da origem do frontend (ex: `https://seu-app.web.app`).
+### Cause
+Backend not accepting requests from frontend origin.
 
-### Solução
+### Solution
 
-#### 1. Configuração Dinâmica
-O backend deve aceitar múltiplas origens definidas via variável de ambiente `CORS_ORIGINS`.
-
-**Verificar configuração atual:**
 ```bash
+# Check current CORS config
 gcloud run services describe txai-backend \
   --region us-central1 \
   --format="value(spec.template.spec.containers[0].env)"
-```
 
-#### 2. Correção Automática
-Re-execute o script de deploy do backend, que detecta automaticamente as URLs do Firebase:
-```bash
-./scripts/gcp/deploy-backend.sh
-```
-
-#### 3. Correção Manual
-```bash
-# Adicione suas URLs (separadas por vírgula)
-URLS="https://seu-projeto.web.app,https://seu-projeto.firebaseapp.com"
-
+# Update CORS origins
 gcloud run services update txai-backend \
-  --update-env-vars "^:^CORS_ORIGINS=$URLS"
+  --update-env-vars "CORS_ORIGINS=https://your-app.web.app,https://your-app.firebaseapp.com"
 ```
-*Nota: Use `^:^` como delimitador para evitar problemas com vírgulas no gcloud CLI.*
 
 ---
 
-## Banco de Dados (Connection Failed)
+## Database Issues
 
-### Sintoma
-Backend falha ao iniciar ou endpoints retornam erro 500. Logs mostram `PrismaClientInitializationError` ou timeout de conexão.
+### Symptom
+Backend fails to start or returns 500 errors on data operations.
 
-### Causa
-- **Local:** Container Postgres parado ou porta incorreta.
-- **GCP:** Cloud Run não tem permissão para acessar o Cloud SQL ou a string de conexão está errada.
+### Local Solution
 
-### Solução
-
-#### Local
 ```bash
-# Verifique se o container está rodando
-docker compose ps
+# Check Firebase emulator is running
+docker-compose ps
+docker-compose logs firebase-emulator
 
-# Reinicie com volumes limpos (atenção: apaga dados)
-docker compose down -v
-docker compose up -d
+# Reset everything
+docker-compose down -v
+docker-compose up -d
 ```
 
-#### GCP (Cloud Run)
-1. **Verifique a conexão:**
-   O Cloud Run usa o Cloud SQL Proxy embutido. A string de conexão **não** deve usar IP, mas sim socket Unix:
-   `postgresql://user:pass@localhost/db?host=/cloudsql/PROJECT:REGION:INSTANCE`
+### Cloud Solution
 
-2. **Verifique as variáveis:**
-   ```bash
-   gcloud run services describe txai-backend
-   ```
-   Procure por `DATABASE_URL`.
+Check Firestore is enabled:
+```bash
+gcloud firestore databases list --project=YOUR_PROJECT
+```
 
-3. **Verifique permissões:**
-   A Service Account do Cloud Run (`runtime-api@...`) deve ter o papel `Cloud SQL Client`.
+Check Cloud Run logs:
+```bash
+gcloud run logs read txai-backend --limit=50
+```
 
 ---
 
-## Deploy GCP (Cloud Run/Build)
+## Storage Issues
 
-### Sintoma
-Deploy falha com `Step #...: ERROR`.
+### Symptom
+File uploads fail or images don't display.
 
-### Causa
-Geralmente erro de build do Docker ou falha nos scripts de migração (`startup.sh`).
+### Local Solution
 
-### Solução
+```bash
+# Check GCS emulator is running
+curl http://localhost:4443/storage/v1/b
 
-#### 1. Verificar Logs de Build
+# Restart emulator
+docker-compose restart fake-gcs
+```
+
+### Cloud Solution
+
+Verify bucket exists and backend has access:
+```bash
+gsutil ls gs://your-bucket-name
+```
+
+---
+
+## Deploy Issues
+
+### Symptom
+Deploy fails or containers crash on startup.
+
+### Solution
+
+**Check build logs:**
 ```bash
 gcloud builds list --limit 1
 gcloud builds log [BUILD_ID]
 ```
 
-#### 2. Verificar Scripts de Startup
-O backend executa `prisma migrate` e `seed` ao iniciar. Se isso falhar, o container morre.
-- Aumente o timeout de startup (configurado para 300s no Terraform).
-- Verifique se o banco está acessível durante o startup.
-
----
-
-## Frontend (Firebase/React)
-
-### Sintoma
-Tela branca ou loop de redirecionamento.
-
-### Causa
-- Roteamento SPA não configurado (erro 404 em rotas profundas).
-- Variável `REACT_APP_API_URL` incorreta no build.
-
-### Solução
-
-#### 1. Configuração SPA (`firebase.json`)
-Certifique-se de que há um rewrite para `index.html`:
-```json
-"rewrites": [ { "source": "**", "destination": "/index.html" } ]
-```
-
-#### 2. Re-deploy com API URL correta
+**Check runtime logs:**
 ```bash
-export API_URL="https://seu-backend.run.app/api"
-./scripts/gcp/deploy-frontend-firebase.sh
+gcloud run logs read txai-backend --limit=50
 ```
-*O React "bakes" as variáveis de ambiente no momento do build (npm run build).*
+
+**Common causes:**
+1. Missing environment variables
+2. Firebase/GCP credentials not configured
+3. Network issues connecting to Redis Cloud
+
+### Frontend Blank Screen
+
+Ensure SPA routing in `firebase.json`:
+```json
+{
+  "rewrites": [{ "source": "**", "destination": "/index.html" }]
+}
+```
+
+Verify API URL is baked into the build:
+```bash
+export REACT_APP_API_URL="https://your-backend.run.app/api"
+npm run build
+```

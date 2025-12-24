@@ -283,3 +283,4 @@ firebase-debug.log
 firebase-debug.*.log
 
 # NOTE: .firebaserc and firebase.json ARE committed (project configuration)
+infra/terraform/environments/dev/terraform.tfvars

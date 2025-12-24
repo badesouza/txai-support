@@ -1,80 +1,84 @@
-# Docker (local)
+# Docker (Local Development)
 
-Este projeto usa Docker Compose para rodar localmente todo o ambiente de desenvolvimento.
+Docker Compose runs the complete development environment locally.
 
-## Setup recomendado
+## Quick Start
 
-macOS/Linux:
 ```bash
-./setup.sh
+# Create secrets file
+cp .env.example .env
+# Edit .env and set JWT_SECRET and ADMIN_DEFAULT_PASSWORD
+
+# Start everything
+docker-compose up -d
 ```
 
-Windows:
-```powershell
-.\setup.ps1
-```
+## Services
 
-## Arquitetura local
+| Service | Port | Description |
+|---------|------|-------------|
+| `frontend` | 8081 | React app (Nginx) |
+| `backend` | 3001 | Node.js API |
+| `firebase-emulator` | 4000, 8082 | Firestore + Auth emulator |
+| `redis` | 6379 | Session storage |
+| `fake-gcs` | 4443 | GCS emulator |
 
-O `docker-compose.yml` sobe 3 serviços essenciais:
+## URLs
 
-1. **Frontend (`txai-frontend`)**
-   - Imagem: `nginx:alpine` servindo o build do React
-   - Porta: `8080` (mapeada para 80 interna)
-   - Config: `frontend/nginx.conf` (SPA routing + gzip)
-   
-2. **Backend (`txai-backend`)**
-   - Imagem: Node.js 18 (Alpine)
-   - Porta: `3001`
-   - Inicialização: Executa migrations e seed automaticamente
+- **Frontend**: http://localhost:8081
+- **Backend API**: http://localhost:3001/api
+- **Firebase Emulator UI**: http://localhost:4000
+- **GCS Emulator**: http://localhost:4443
 
-3. **Database (`txai-postgres`)**
-   - Imagem: PostgreSQL 15 (Alpine)
-   - Porta: `5433` (evita conflito com postgres local na 5432)
-   - Volume: `postgres_data` (persistência)
+## Common Commands
 
-## Portas padrão
-- **Frontend**: http://localhost:8080
-- **API**: http://localhost:3001/api
-- **Postgres**: localhost:5433
-
-## Setup manual
-
-1) Subir containers:
 ```bash
-docker compose up -d --build
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f backend
+
+# Restart backend
+docker-compose restart backend
+
+# Reset everything (deletes all data)
+docker-compose down -v && docker-compose up -d
+
+# Access Redis CLI
+docker-compose exec redis redis-cli
+
+# Check Firebase emulator
+curl http://localhost:8082
 ```
 
-2) Migrations + seed (já automático, mas se precisar forçar):
+## Data Persistence
+
+| Data | Location |
+|------|----------|
+| Firestore | Docker volume `firebase_data` |
+| Redis | Docker volume `redis_data` |
+| GCS uploads | `./data/gcs/txai-uploads/` |
+| WhatsApp sessions | `./backend/whatsapp-sessions/` |
+
+## Troubleshooting
+
+### Backend won't start
+
+Check Firebase emulator is healthy:
 ```bash
-docker exec txai-backend npx prisma migrate deploy
-docker exec txai-backend npx prisma db seed
+docker-compose ps
+docker-compose logs firebase-emulator
 ```
 
-> Se você executar `docker compose down -v`, precisará rodar o seed novamente pois o volume do banco será apagado.
+### Old data causing issues
 
-## Comandos úteis
-
-Logs em tempo real:
+Reset all volumes:
 ```bash
-docker compose logs -f
+docker-compose down -v
+docker-compose up -d
 ```
 
-Apenas logs do backend:
-```bash
-docker compose logs -f backend
-```
+### 401 errors after restart
 
-Shell do banco de dados:
-```bash
-docker exec -it txai-postgres psql -U txai -d txai_support
-```
-
-Reset completo (apaga dados):
-```bash
-docker compose down -v
-```
-
-## Observações
-- Uploads persistem em `backend/uploads` (volume mapeado)
-- Sessões do WhatsApp persistem em `backend/whatsapp-sessions` (volume mapeado)
+Clear browser localStorage and login again.
