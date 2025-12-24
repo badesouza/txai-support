@@ -1,6 +1,5 @@
 import { create, SocketState, Whatsapp } from '@wppconnect-team/wppconnect';
-import { WhatsAppMessageModel } from '../models/WhatsAppMessage';
-import { WhatsAppMessageService } from './whatsapp-message.service';
+import { WhatsAppMessageRepository, UserRepository, CallRepository } from '../repositories';
 import * as waJs from '@wppconnect/wa-js';
 import { storage } from '../storage/storage';
 
@@ -13,7 +12,7 @@ export interface WhatsAppMessage {
   mediaKey?: string;
   directPath?: string;
   mimetype?: string;
-  [key: string]: any; // Allow additional properties from WPPConnect
+  [key: string]: any;
 }
 
 export class WPPConnectDirectService {
@@ -23,11 +22,8 @@ export class WPPConnectDirectService {
   private qrCode: string | null = null;
   private isInitializing: boolean = false;
   private lastQrCodeTime: number = 0;
-  private pendingCallLocations: Map<string, { userId: number; timestamp: number }> = new Map();
+  private pendingCallLocations: Map<string, { userId: string; timestamp: number }> = new Map();
 
-  /**
-   * Initialize WPPConnect and start WhatsApp session
-   */
   async initialize(): Promise<void> {
     if (this.isInitializing) {
       console.log('⚠️ WPPConnect is already initializing...');
@@ -40,43 +36,39 @@ export class WPPConnectDirectService {
       console.log('🚀 Initializing WPPConnect Direct Service...');
       
       const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH || '/usr/bin/chromium-browser';
+      const tokenStore = process.env.WHATSAPP_TOKEN_STORE || 'file';
+      const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+      
       console.log('🌐 Using Chrome Path:', chromePath);
       console.log('🌐 Session name:', this.sessionName);
+      console.log('🌐 Token store:', tokenStore);
       console.log('🌐 Creating WPPConnect client...');
 
-      this.client = await create({
+      const createOptions: any = {
         session: this.sessionName,
         headless: true,
         devtools: false,
-        useChrome: false, // Forçamos false para usar o executablePath manual
+        useChrome: false,
         debug: false,
-        logQR: true, // TEMP: Enable to see if QR is generated in console
-        autoClose: false as any, // Disable auto close
-        disableWelcome: true, // Skip welcome screen
-        waitForLogin: false, // Não aguarda o login para retornar o client
+        logQR: true,
+        autoClose: false as any,
+        disableWelcome: true,
+        waitForLogin: false,
         updatesLog: false,
-        folderNameToken: 'tokens', // Nome da pasta para os tokens
-        mkdirFolderToken: './whatsapp-sessions', // Caminho base para os tokens
-        catchQR: (base64Qrimg, asciiQR, attempts, urlCode) => {
-          // base64Qrimg já vem no formato data:image/png;base64,AAA...
+        catchQR: (base64Qrimg: string, asciiQR: string, attempts: number, urlCode: string) => {
           console.log('📸 ========== QR CODE CALLBACK TRIGGERED ==========');
           console.log('📸 Attempts:', attempts);
           console.log('📸 Has base64Qrimg:', !!base64Qrimg);
-          console.log('📸 Base64 length:', base64Qrimg?.length || 0);
-          console.log('📸 Has urlCode:', !!urlCode);
           
           if (!base64Qrimg) {
             console.error('❌ QR Code is empty!');
             return;
           }
           
-          // normalize: garante prefix data:image...
           const qr = String(base64Qrimg).startsWith('data:image') ? String(base64Qrimg) : `data:image/png;base64,${String(base64Qrimg)}`;
           this.qrCode = qr;
           this.lastQrCodeTime = Date.now();
           console.log('✅ QR Code captured and stored successfully');
-          console.log('📸 QR preview:', qr.substring(0, 100) + '...');
-          console.log('📸 ===============================================');
         },
         puppeteerOptions: {
           executablePath: chromePath,
@@ -100,107 +92,26 @@ export class WPPConnectDirectService {
           ],
           defaultViewport: null
         }
-      });
+      };
+
+      // Configure token storage based on environment
+      if (tokenStore === 'redis') {
+        console.log('📦 Using Redis for session storage');
+        createOptions.tokenStore = 'redis';
+        createOptions.redis = this.parseRedisUrl(redisUrl);
+      } else {
+        console.log('📁 Using file storage for sessions');
+        createOptions.folderNameToken = 'tokens';
+        createOptions.mkdirFolderToken = process.env.WHATSAPP_SESSION_PATH || './whatsapp-sessions';
+      }
+
+      this.client = await create(createOptions);
 
       console.log('✅ WPPConnect client created successfully');
-      console.log('🔍 Client type:', typeof this.client);
-      console.log('🔍 Client has onMessage:', typeof this.client.onMessage === 'function');
-      console.log('🔍 Client has onStateChange:', typeof this.client.onStateChange === 'function');
-
-      // WORKAROUND: Manual QR code extraction since catchQR doesn't trigger
-      setTimeout(async () => {
-        try {
-          if (!this.isConnected && !this.qrCode) {
-            console.log('🔍 Attempting manual QR code extraction...');
-            const anyClient: any = this.client as any;
-            const page = anyClient?.page || anyClient?.pupPage || anyClient?.waPage;
-            
-            if (page) {
-              // Take screenshot for debugging
-              try {
-                await page.screenshot({ path: '/app/uploads/whatsapp-page.png' });
-                console.log('📸 Screenshot saved to /app/uploads/whatsapp-page.png');
-              } catch (e) {
-                console.log('⚠️ Screenshot failed:', e);
-              }
-              
-              // Try multiple selectors to find QR code
-              const qrData = await page.evaluate(() => {
-                // @ts-ignore - Running in browser context
-                let canvas = document.querySelector('canvas');
-                if (canvas) {
-                  // @ts-ignore
-                  return canvas.toDataURL('image/png');
-                }
-                
-                // Try QR code image
-                // @ts-ignore
-                const qrImg = document.querySelector('img[alt="Scan me!"]') || 
-                              // @ts-ignore
-                              document.querySelector('[data-ref]') ||
-                              // @ts-ignore
-                              document.querySelector('img[src*="qr"]');
-                              
-                if (qrImg) {
-                  // @ts-ignore
-                  return qrImg.src;
-                }
-                
-                return null;
-              }).catch((e: any) => {
-                console.log('⚠️ Page evaluation failed:', e.message);
-                return null;
-              });
-              
-              if (qrData) {
-                console.log('✅ QR Code manually extracted!');
-                console.log('📸 QR Data preview:', qrData.substring(0, 100) + '...');
-                this.qrCode = qrData;
-                this.lastQrCodeTime = Date.now();
-              } else {
-                console.log('⚠️ No QR code found on page');
-                // Log page content for debugging
-                const pageInfo = await page.evaluate(() => {
-                  // @ts-ignore
-                  return {
-                    //url: document.location.href,
-                    // @ts-ignore
-                    title: document.title,
-                    // @ts-ignore
-                    canvasCount: document.querySelectorAll('canvas').length,
-                    // @ts-ignore
-                    imgCount: document.querySelectorAll('img').length
-                  };
-                }).catch(() => ({ error: 'Could not get page info' }));
-                console.log('📄 Page info:', JSON.stringify(pageInfo));
-              }
-            } else {
-              console.log('⚠️ Could not access page object for manual QR extraction');
-            }
-          }
-        } catch (e) {
-          console.log('⚠️ Manual QR extraction error:', e);
-        }
-      }, 3000);
-
-      // Check initial connection state
-      try {
-        const anyClient: any = this.client as any;
-        if (typeof anyClient.getConnectionState === 'function') {
-          const initialState = await anyClient.getConnectionState();
-          console.log('🔍 Initial connection state:', initialState);
-        }
-        if (typeof anyClient.isLoggedIn === 'function') {
-          const loggedIn = await anyClient.isLoggedIn();
-          console.log('🔍 Is logged in:', loggedIn);
-        }
-      } catch (e) {
-        console.log('⚠️ Could not check initial connection state:', e);
-      }
 
       // Set up message event listener
       this.client.onMessage(async (message: any) => {
-        console.log('📱 Message received:', JSON.stringify(message, null, 2));
+        console.log('📱 Message received');
         await this.handleIncomingMessage({
           from: message.from,
           body: message.body || '',
@@ -210,530 +121,209 @@ export class WPPConnectDirectService {
           mediaKey: message.mediaKey || message.mediaData?.mediaKey,
           directPath: message.directPath || message.mediaData?.directPath,
           mimetype: message.mimetype || message.mediaData?.mimetype,
-          ...message // Include all other properties
+          ...message
         });
       });
 
       // Set up connection state listener
       this.client.onStateChange((state: SocketState) => {
         console.log('📱 WhatsApp connection state changed:', state);
-        // Consider states like MAIN (NORMAL) and SYNCING as connected too
         const normalized = String(state).toUpperCase();
         const connectedStates = ['CONNECTED', 'MAIN', 'NORMAL', 'SYNCING'];
-        const wasConnected = this.isConnected;
         this.isConnected = connectedStates.some((s) => normalized.includes(s));
 
-        if (this.isConnected) {
-          if (this.qrCode) {
-            this.qrCode = null;
-            console.log('✅ WhatsApp connected - QR code cleared');
-          }
-        } else {
-          // se caiu e consegue gerar novo QR, catchQR irá preencher
-          if (normalized.includes('UNPAIRED')) {
-            console.log('🔔 Session requires QR or is unpaired - waiting for catchQR...');
-          }
+        if (this.isConnected && this.qrCode) {
+          this.qrCode = null;
+          console.log('✅ WhatsApp connected - QR code cleared');
         }
       });
 
       console.log('✅ WPPConnect Direct Service initialized successfully');
-      console.log('⏳ Waiting for QR code generation or existing session...');
       
     } catch (error) {
       console.error('❌ Error initializing WPPConnect Direct Service:', error);
-      console.error('❌ Error details:', error instanceof Error ? error.message : 'Unknown error');
-      console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       this.isInitializing = false;
-      
-      // Retry initialization after a delay
-      setTimeout(() => {
-        console.log('🔄 Retrying WPPConnect initialization...');
-        this.initialize().catch(err => {
-          console.error('❌ Retry failed:', err);
-        });
-      }, 5000);
-      
       throw error;
     } finally {
       this.isInitializing = false;
     }
   }
 
-  /**
-   * Handle incoming WhatsApp messages
-   */
+  private parseRedisUrl(redisUrl: string) {
+    try {
+      const url = new URL(redisUrl);
+      const config: any = {
+        host: url.hostname,
+        port: parseInt(url.port || '6379'),
+        db: url.pathname ? parseInt(url.pathname.substring(1)) : 0,
+      };
+
+      if (url.protocol === 'rediss:') {
+        config.tls = { rejectUnauthorized: false };
+      }
+      if (url.password) {
+        config.password = url.password;
+      }
+      return config;
+    } catch (error) {
+      console.error('❌ Error parsing Redis URL:', error);
+      throw error;
+    }
+  }
+
   private async handleIncomingMessage(message: WhatsAppMessage): Promise<void> {
     try {
-      console.log('📱 ===== INCOMING MESSAGE =====');
-      console.log('📱 From:', message.from);
-      console.log('📱 Body:', message.body);
-      console.log('📱 Type:', message.type);
-      console.log('📱 ============================');
-
-      // Extract phone number (remove @c.us suffix)
       const phone = message.from.replace('@c.us', '');
+      const user = await UserRepository.findByPhone(phone);
+      const userExists = !!user;
       
-      // Check if user exists in database
-      const userExists = await this.checkUserExists(phone);
-      console.log('👤 Usuário existe no banco:', userExists);
+      console.log('👤 User exists:', userExists);
       
-      // Message will be saved later in the processing logic
-
-      // Process message based on type and user existence
-      await this.processMessage(message, userExists);
-
-      console.log('✅ Message processed and auto-reply sent');
-      
+      await this.processMessage(message, userExists, user?.id);
     } catch (error) {
       console.error('❌ Error handling incoming message:', error);
     }
   }
 
-  /**
-   * Check if user exists in database
-   */
-  private async checkUserExists(phone: string): Promise<boolean> {
+  private async processMessage(message: WhatsAppMessage, userExists: boolean, userId?: string): Promise<void> {
     try {
-      const { PrismaClient } = require('@prisma/client');
-      const prisma = new PrismaClient();
-      
-      // Normalizar o telefone para busca (remover formatação e garantir formato 55XXXXXXXXX)
-      const normalizedPhone = this.normalizePhoneForSearch(phone);
-      
-      const user = await prisma.user.findFirst({
-        where: {
-          phone: normalizedPhone
-        }
-      });
-      
-      // Log para debug
-      console.log('🔍 checkUserExists - Original Phone:', phone);
-      console.log('🔍 checkUserExists - Normalized Phone:', normalizedPhone);
-      console.log('🔍 checkUserExists - User found:', user ? 'YES' : 'NO');
-      if (user) {
-        console.log('🔍 checkUserExists - User details:', {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          profile: user.profile
-        });
-      }
-      
-      await prisma.$disconnect();
-      
-      return !!user;
-    } catch (error) {
-      console.error('❌ Error checking user existence:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Process message based on type and user existence
-   */
-  private async processMessage(message: WhatsAppMessage, userExists: boolean): Promise<void> {
-    try {
-      console.log('🔄 Processando mensagem - Tipo:', message.type, 'Usuário existe:', userExists);
-      
       const phone = message.from.replace('@c.us', '');
       
       switch (message.type) {
         case 'text':
         case 'chat':
-          await this.handleTextMessage(phone, message.body || '', userExists);
+          await this.handleTextMessage(phone, message.body || '', userExists, userId);
           break;
         case 'image':
-          await this.handleImageMessage(phone, userExists, message);
+          await this.handleImageMessage(phone, userExists, userId, message);
           break;
         case 'document':
-          // Documentos podem ser imagens originais (quando enviados como documento)
-          // Verificar se o mimetype é uma imagem
           const isImageDocument = message.mimetype?.startsWith('image/');
           if (isImageDocument) {
-            console.log('📄 Documento de imagem detectado - processando como imagem original');
-            await this.handleImageMessage(phone, userExists, message);
-          } else {
-            console.log('📄 Documento não-imagem detectado - tipo:', message.mimetype);
-            await this.handleDocumentMessage(phone, userExists, message);
+            await this.handleImageMessage(phone, userExists, userId, message);
           }
           break;
-        case 'video':
-          await this.handleVideoMessage(phone, userExists);
-          break;
         default:
-          console.log('⚠️ Tipo de mensagem não suportado:', message.type);
-          await this.handleTextMessage(phone, message.body || '', userExists);
+          await this.handleTextMessage(phone, message.body || '', userExists, userId);
       }
     } catch (error) {
       console.error('❌ Error processing message:', error);
     }
   }
 
-  /**
-   * Handle text messages
-   */
-  private async handleTextMessage(phone: string, messageBody: string, userExists: boolean): Promise<void> {
+  private async handleTextMessage(phone: string, messageBody: string, userExists: boolean, userId?: string): Promise<void> {
     try {
-      console.log('📝 Processando mensagem de texto');
-      
-      // Limpar estados pendentes expirados (mais de 10 minutos)
       this.cleanExpiredPendingStates();
 
-      // Verificar se é resposta para local do chamado
-      if (userExists && this.pendingCallLocations.has(phone)) {
-        await this.handleCallLocationResponse(phone, messageBody);
+      if (userExists && userId && this.pendingCallLocations.has(phone)) {
+        await this.handleCallLocationResponse(phone, messageBody, userId);
         return;
       }
 
-      // Fluxo profissional: se mensagem for "novo" ou "novo chamado"
       const lower = (messageBody || '').toLowerCase().trim();
       const isNewCall = lower.includes('novo chamado') || lower === 'novo';
 
       if (isNewCall) {
-        if (!userExists) {
-          // Requisito: número não cadastrado → não fazer nada
-          console.log('ℹ️ Mensagem de novo chamado ignorada: usuário não cadastrado.');
+        if (!userExists || !userId) {
+          console.log('ℹ️ New call message ignored: user not registered.');
           return;
         }
-
-        // Iniciar fluxo de criação de chamado com local
-        await this.initiateCallCreationFlow(phone, messageBody);
-        return; // Não enviar auto-reply genérico
+        await this.initiateCallCreationFlow(phone, userId);
+        return;
       }
 
-      // Demais casos: buscar último chamado do usuário e atualizar
-      if (userExists) {
-        await this.updateLastCallWithMessage(phone, messageBody);
-      } else {
-        // Usuário não cadastrado - não fazer nada
-        console.log('ℹ️ Mensagem ignorada: usuário não cadastrado.');
+      if (userExists && userId) {
+        await this.updateLastCallWithMessage(phone, messageBody, userId);
       }
     } catch (error) {
       console.error('❌ Error handling text message:', error);
     }
   }
 
-  /**
-   * Handle image messages
-   * Processa tanto imagens normais (comprimidas) quanto documentos de imagem (originais)
-   */
-  private async handleImageMessage(phone: string, userExists: boolean, message?: WhatsAppMessage): Promise<void> {
+  private async handleImageMessage(phone: string, userExists: boolean, userId?: string, message?: WhatsAppMessage): Promise<void> {
     try {
-      const isDocument = message?.type === 'document';
-      const imageType = isDocument ? '📄 DOCUMENTO DE IMAGEM (ORIGINAL)' : '🖼️ IMAGEM (comprimida)';
-      console.log(`🖼️ Processando ${imageType}`);
-      console.log('🖼️ Phone:', phone);
-      console.log('🖼️ User exists:', userExists);
-      console.log('🖼️ Message type:', message?.type);
-      console.log('🖼️ Message mimetype:', message?.mimetype);
-      
-      if (!userExists) {
-        console.log('ℹ️ Imagem ignorada: usuário não cadastrado.');
+      if (!userExists || !userId || !message) {
+        console.log('ℹ️ Image ignored: user not registered or invalid message.');
         return;
       }
 
-      // Processar imagem para último chamado do usuário
-      console.log('🖼️ Chamando processImageForLastCall...');
-      try {
-        if (message) {
-          await this.processImageForLastCall(phone, message);
-          console.log('🖼️ processImageForLastCall finalizado');
-        } else {
-          console.log('❌ Message é undefined');
-        }
-      } catch (error) {
-        console.error('❌ Erro em processImageForLastCall:', error);
-        console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+      const lastCall = await CallRepository.findActiveCallForUser(userId);
+      if (!lastCall) {
+        console.log('❌ No active call found for user');
+        return;
       }
-      
+
+      await this.downloadAndSaveImage(message, lastCall.id);
+
+      await WhatsAppMessageRepository.create({
+        phone,
+        message: '[Imagem]',
+        messageType: 'image',
+        userId,
+        callId: lastCall.id,
+        isFromUser: true,
+      });
+
+      console.log('✅ Image processed and linked to call:', lastCall.id);
     } catch (error) {
       console.error('❌ Error handling image message:', error);
     }
   }
 
-  /**
-   * Processa imagem para o último chamado do usuário
-   */
-  private async processImageForLastCall(phone: string, message: WhatsAppMessage): Promise<void> {
+  private async downloadAndSaveImage(message: WhatsAppMessage, callId: string): Promise<void> {
     try {
-      console.log('🖼️ Processando imagem para último chamado');
-      console.log('🖼️ Message ID:', message?.id);
-      console.log('🖼️ Message object keys:', message ? Object.keys(message) : 'null');
-      console.log('🖼️ Message type:', message?.type);
-      console.log('🖼️ Message body exists:', !!message?.body);
-      console.log('🖼️ Message body length:', message?.body ? message.body.length : 'null');
-      console.log('🖼️ Message body preview:', message?.body ? message.body.substring(0, 50) + '...' : 'null');
-      
-    // Verificar se message é válido
-    if (!message) {
-      console.log('❌ Message é null ou undefined');
-      return;
-    }
-    
-    // Gerar um ID único se não existir (WPPConnect às vezes não fornece message.id)
-    if (!message.id) {
-      message.id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      console.log('🆔 Gerado ID único para a mensagem:', message.id);
-    }
-      
-      // Buscar usuário pelo telefone
-      console.log('🔍 Buscando usuário pelo telefone:', phone);
-      const user = await this.findUserByPhone(phone);
-      if (!user) {
-        console.log('❌ Usuário não encontrado para processar imagem');
-        return;
-      }
-      console.log('✅ Usuário encontrado:', user.id, user.name);
-
-      // Buscar o último chamado do usuário
-      console.log('🔍 Buscando último chamado do usuário:', user.id);
-      const lastCall = await this.getLastCallByUserId(user.id);
-      if (!lastCall) {
-        console.log('❌ Nenhum chamado encontrado para o usuário');
-        return;
-      }
-      console.log('✅ Último chamado encontrado:', lastCall.id);
-
-      // Baixar e salvar a imagem
-      if (message && message.id) {
-        console.log('📥 Iniciando download da imagem...');
-        console.log('📥 Message ID:', message.id);
-        console.log('📥 Call ID:', lastCall.id);
-        console.log('📥 Message body length:', message.body ? message.body.length : 'null');
-        await this.downloadAndSaveImage(message, lastCall.id);
-
-        // Salvar mensagem de imagem no histórico
-        await WhatsAppMessageModel.create({
-          phone,
-          message: '[Imagem]',
-          messageType: 'image',
-          userId: user.id,
-          callId: lastCall.id,
-          isFromUser: true,
-        });
-
-        console.log('✅ Imagem processada e vinculada ao chamado:', lastCall.id);
-      } else {
-        console.log('❌ Message ou message.id não encontrado');
-        console.log('❌ Message:', message);
-      }
-      
-    } catch (error) {
-      console.error('❌ Error processing image for last call:', error);
-      console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
-    }
-  }
-
-  /**
-   * Baixa e salva a imagem do WhatsApp usando WPPConnect downloadMedia
-   */
-  private async downloadAndSaveImage(message: WhatsAppMessage, callId: number): Promise<void> {
-    try {
-      console.log('📥 Iniciando download da imagem original...');
-      console.log('📥 Message ID:', message.id);
-      console.log('📥 Call ID:', callId);
-      console.log('📥 Message keys:', Object.keys(message));
-      console.log('📥 Message mediaKey:', message.mediaKey);
-      console.log('📥 Message directPath:', message.directPath);
-      console.log('📥 Message mimetype:', message.mimetype);
-      
       if (!this.client) {
         throw new Error('WPPConnect client is not initialized');
       }
 
-      let mediaData: Buffer;
+      let mediaData: Buffer | undefined;
       let mimetype: string | undefined = message.mimetype;
-      
-      // Método 1: Usar downloadMediaByMessageId (retorna base64, mais confiável)
+
       try {
-        console.log('📥 Download via WPPConnect.downloadMediaByMessageId (base64)...');
         const downloadedMedia: any = await (this.client as any).downloadMediaByMessageId(message.id);
         
-        if (downloadedMedia && downloadedMedia.base64) {
+        if (downloadedMedia?.base64) {
           let base64Data = downloadedMedia.base64;
-          
-          // Remover prefixo data URL se existir
           if (base64Data.includes(',')) {
             base64Data = base64Data.split(',')[1];
           }
-          
-          // Limpar espaços em branco e quebras de linha que podem corromper o base64
           base64Data = base64Data.trim().replace(/\s/g, '');
-          
-          // Validar base64 antes de converter
-          if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data)) {
-            throw new Error('Base64 data inválido após limpeza');
-          }
-          
           mediaData = Buffer.from(base64Data, 'base64');
           mimetype = downloadedMedia.mimetype || message.mimetype;
-          console.log('✅ downloadMediaByMessageId: Imagem baixada com sucesso, tamanho:', mediaData.length, 'bytes');
-          
-          // Validar que é uma imagem válida antes de prosseguir
-          if (!this.validateImageBuffer(mediaData, mimetype)) {
-            throw new Error('Dados baixados não correspondem a uma imagem válida');
-          }
-        } else {
-          throw new Error('downloadMediaByMessageId retornou dados inválidos');
         }
       } catch (downloadError) {
-        console.log('⚠️ downloadMediaByMessageId falhou, tentando decryptFile como fallback...');
-        console.log('⚠️ DownloadMedia error:', downloadError);
-        
-        // Fallback: tentar decryptFile (opção 2)
-        try {
-          console.log('📥 Tentando decryptFile...');
-          const mediaBuffer: any = await this.client.decryptFile(message as any);
-          
-          if (mediaBuffer) {
-            // decryptFile pode retornar Buffer, Uint8Array ou string base64
-            if (Buffer.isBuffer(mediaBuffer)) {
-              mediaData = mediaBuffer;
-            } else if (mediaBuffer instanceof Uint8Array) {
-              mediaData = Buffer.from(mediaBuffer);
-            } else if (typeof mediaBuffer === 'string') {
-              // Se for string, pode ser base64
-              let base64Data = mediaBuffer.trim().replace(/\s/g, '');
-              if (base64Data.includes(',')) {
-                base64Data = base64Data.split(',')[1];
-              }
-              mediaData = Buffer.from(base64Data, 'base64');
-            } else {
-              throw new Error('Formato de dados retornado por decryptFile não reconhecido');
-            }
-            
-            // Validar que é uma imagem válida
-            if (!this.validateImageBuffer(mediaData, mimetype)) {
-              throw new Error('Dados do decryptFile não correspondem a uma imagem válida');
-            }
-            
-            console.log('✅ decryptFile: Imagem baixada com sucesso, tamanho:', mediaData.length, 'bytes');
-          } else {
-            throw new Error('decryptFile retornou dados vazios');
-          }
-        } catch (fallbackError) {
-          console.log('⚠️ decryptFile também falhou, usando body (miniatura) como último recurso...');
-          console.log('⚠️ Fallback error:', fallbackError);
-          
-          // Último recurso: usar message.body (miniatura)
-          if (!message.body || typeof message.body !== 'string') {
-            console.log('❌ Message body não contém dados válidos');
-            throw new Error('Não foi possível baixar a imagem: todos os métodos falharam e body está vazio');
-          }
-
-          // Limpar espaços em branco e quebras de linha
+        if (message.body) {
           let cleanedBody = message.body.trim().replace(/\s/g, '');
-          
-          // Verificar se é base64 válido
-          const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
-          if (!base64Regex.test(cleanedBody)) {
-            console.log('❌ Body não é base64 válido após limpeza');
-            throw new Error('Body não contém base64 válido');
-          }
-
           mediaData = Buffer.from(cleanedBody, 'base64');
-          console.log('📥 Último recurso: Usando body (miniatura), tamanho:', mediaData.length, 'bytes');
-          console.log('⚠️ ATENÇÃO: Esta é uma miniatura, não a imagem comprimida');
         }
       }
-      
-      // Validar que temos dados válidos antes de salvar
+
       if (!mediaData || mediaData.length === 0) {
-        throw new Error('Dados da imagem estão vazios ou inválidos');
+        throw new Error('Image data is empty or invalid');
       }
 
-      // Verificar se o Buffer é válido (primeiros bytes de uma imagem válida)
-      const isValidImage = this.validateImageBuffer(mediaData, mimetype);
-      if (!isValidImage) {
-        console.log('⚠️ Buffer pode estar corrompido, mas tentando salvar mesmo assim...');
-      }
-
-      // Gerar nome único para o arquivo
       const timestamp = Date.now();
-      const extension = this.getImageExtension(message.mimetype || 'image/jpeg');
+      const extension = this.getImageExtension(mimetype || 'image/jpeg');
       const filename = `whatsapp-${timestamp}.${extension}`;
-      console.log('📥 Salvando arquivo:', filename);
-      console.log('📥 Tamanho do buffer:', mediaData.length, 'bytes');
 
       const { relativePath } = await storage.saveBuffer({
         buffer: mediaData,
         filename,
-        contentType: message.mimetype || 'image/jpeg',
+        contentType: mimetype || 'image/jpeg',
       });
 
-      // Salvar referência na tabela call_images
-      await this.saveCallImage(callId, filename, relativePath);
+      await CallRepository.addImage({
+        callId,
+        filename,
+        path: relativePath
+      });
 
-      console.log('✅ Imagem salva com sucesso:', filename);
-      
+      console.log('✅ Image saved:', filename);
     } catch (error) {
       console.error('❌ Error downloading and saving image:', error);
-      console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
     }
   }
 
-  /**
-   * Valida se o buffer contém dados válidos de uma imagem
-   * Verifica os magic bytes (assinaturas de arquivo) comuns
-   */
-  private validateImageBuffer(buffer: Buffer, mimetype?: string): boolean {
-    if (!buffer || buffer.length < 4) {
-      return false;
-    }
-
-    // Magic bytes para diferentes formatos de imagem
-    const magicBytes = {
-      jpeg: [0xFF, 0xD8, 0xFF],
-      png: [0x89, 0x50, 0x4E, 0x47],
-      gif: [0x47, 0x49, 0x46, 0x38], // GIF87a ou GIF89a
-      webp: [0x52, 0x49, 0x46, 0x46], // RIFF (WebP pode ter offset)
-    };
-
-    // Verificar JPEG
-    if (buffer[0] === magicBytes.jpeg[0] && 
-        buffer[1] === magicBytes.jpeg[1] && 
-        buffer[2] === magicBytes.jpeg[2]) {
-      return true;
-    }
-
-    // Verificar PNG
-    if (buffer[0] === magicBytes.png[0] && 
-        buffer[1] === magicBytes.png[1] && 
-        buffer[2] === magicBytes.png[2] && 
-        buffer[3] === magicBytes.png[3]) {
-      return true;
-    }
-
-    // Verificar GIF
-    if (buffer[0] === magicBytes.gif[0] && 
-        buffer[1] === magicBytes.gif[1] && 
-        buffer[2] === magicBytes.gif[2] && 
-        buffer[3] === magicBytes.gif[3]) {
-      return true;
-    }
-
-    // Verificar WebP (RIFF....WEBP)
-    if (buffer.length >= 12 && 
-        buffer[0] === magicBytes.webp[0] && 
-        buffer[1] === magicBytes.webp[1] && 
-        buffer[2] === magicBytes.webp[2] && 
-        buffer[3] === magicBytes.webp[3]) {
-      // WebP também precisa ter "WEBP" no offset 8
-      const webpStr = buffer.toString('ascii', 8, 12);
-      if (webpStr === 'WEBP') {
-        return true;
-      }
-    }
-
-    // Se não encontrou magic bytes conhecidos, retorna false
-    // Mas isso não impede o salvamento, apenas gera um aviso
-    return false;
-  }
-
-  /**
-   * Obtém extensão da imagem baseada no mimetype
-   */
   private getImageExtension(mimetype: string): string {
     const extensions: { [key: string]: string } = {
       'image/jpeg': 'jpg',
@@ -742,302 +332,98 @@ export class WPPConnectDirectService {
       'image/gif': 'gif',
       'image/webp': 'webp'
     };
-    
     return extensions[mimetype] || 'jpg';
   }
 
-  /**
-   * Salva referência da imagem na tabela call_images
-   */
-  private async saveCallImage(callId: number, filename: string, path: string): Promise<void> {
-    try {
-      const { PrismaClient } = require('@prisma/client');
-      const prisma = new PrismaClient();
-      
-      await prisma.callImage.create({
-        data: {
-          filename,
-          path,
-          callId
-        }
-      });
-      
-      await prisma.$disconnect();
-    } catch (error) {
-      console.error('❌ Error saving call image:', error);
-    }
-  }
-
-  /**
-   * Handle video messages
-   */
-  private async handleVideoMessage(phone: string, userExists: boolean): Promise<void> {
-    try {
-      console.log('🎥 Processando mensagem de vídeo');
-      
-      let replyMessage = '';
-      
-      if (userExists) {
-        replyMessage = 'Recebi seu vídeo! Como posso ajudá-lo com ele?';
-      } else {
-        replyMessage = 'Recebi seu vídeo, mas você não está cadastrado em nosso sistema.';
-      }
-      
-      await this.sendAutoReply(phone, replyMessage);
-    } catch (error) {
-      console.error('❌ Error handling video message:', error);
-    }
-  }
-
-  /**
-   * Handle document messages (non-image documents)
-   */
-  private async handleDocumentMessage(phone: string, userExists: boolean, message: WhatsAppMessage): Promise<void> {
-    try {
-      console.log('📄 Processando mensagem de documento');
-      console.log('📄 Mimetype:', message.mimetype);
-      console.log('📄 Filename:', (message as any).filename || 'N/A');
-      
-      if (!userExists) {
-        console.log('ℹ️ Documento ignorado: usuário não cadastrado.');
-        return;
-      }
-
-      // Por enquanto, apenas logamos documentos não-imagem
-      // Pode ser expandido no futuro para salvar documentos também
-      console.log('ℹ️ Documento recebido mas não processado ainda (apenas imagens são processadas)');
-      
-    } catch (error) {
-      console.error('❌ Error handling document message:', error);
-    }
-  }
-
-  /**
-   * Limpa estados pendentes expirados
-   */
   private cleanExpiredPendingStates(): void {
     const now = Date.now();
-    const EXPIRATION_TIME = 10 * 60 * 1000; // 10 minutos
+    const EXPIRATION_TIME = 10 * 60 * 1000;
 
     for (const [phone, data] of this.pendingCallLocations.entries()) {
       if (now - data.timestamp > EXPIRATION_TIME) {
         this.pendingCallLocations.delete(phone);
-        console.log('🧹 Limpando estado pendente expirado para:', phone);
       }
     }
   }
 
-  /**
-   * Inicia o fluxo de criação de chamado perguntando o local
-   */
-  private async initiateCallCreationFlow(phone: string, messageBody: string): Promise<void> {
+  private async initiateCallCreationFlow(phone: string, userId: string): Promise<void> {
     try {
-      console.log('🔄 Iniciando fluxo de criação de chamado');
-      
-      // Buscar usuário pelo telefone
-      const user = await this.findUserByPhone(phone);
-      if (!user) {
-        console.log('❌ Usuário não encontrado para iniciar criação de chamado');
-        return;
-      }
-
-      // Salvar estado pendente
       this.pendingCallLocations.set(phone, {
-        userId: user.id,
+        userId,
         timestamp: Date.now()
       });
 
-      // Perguntar o local do chamado
       await this.sendAutoReply(phone, 'Qual o local do chamado?');
-
-      console.log('✅ Fluxo de criação iniciado, aguardando local do chamado');
-      
+      console.log('✅ Call creation flow initiated, awaiting location');
     } catch (error) {
       console.error('❌ Error initiating call creation flow:', error);
     }
   }
 
-  /**
-   * Processa a resposta com o local do chamado
-   */
-  private async handleCallLocationResponse(phone: string, location: string): Promise<void> {
+  private async handleCallLocationResponse(phone: string, location: string, userId: string): Promise<void> {
     try {
-      console.log('📍 Processando resposta do local do chamado:', location);
-      
       const pendingData = this.pendingCallLocations.get(phone);
-      if (!pendingData) {
-        console.log('❌ Dados pendentes não encontrados para o telefone:', phone);
-        return;
-      }
+      if (!pendingData) return;
 
-      // Remover do estado pendente
       this.pendingCallLocations.delete(phone);
 
-      // Criar chamado com o local como título
-      const call = await this.createCallWithLocation(pendingData.userId, location, phone);
+      const user = await UserRepository.findById(userId);
+      const call = await CallRepository.create({
+        title: location,
+        description: `Chamado criado via WhatsApp - ${phone}`,
+        status: 'OPEN',
+        priority: 'MEDIUM',
+        userId,
+        userName: user?.name,
+        userEmail: user?.email,
+        userPhone: user?.phone
+      });
 
-      // Responder com número do chamado
-      await this.sendAutoReply(phone, `Novo chamado de número #${call.id}`);
+      await this.sendAutoReply(phone, `Novo chamado de número #${call.id.substring(0, 8)}`);
 
-      // Salvar mensagem inicial no histórico
-      await WhatsAppMessageModel.create({
+      await WhatsAppMessageRepository.create({
         phone,
         message: location,
         messageType: 'text',
-        userId: pendingData.userId,
+        userId,
         callId: call.id,
         isFromUser: true,
       });
 
-      console.log('✅ Chamado criado com local:', location, 'ID:', call.id);
-      
+      console.log('✅ Call created with location:', location);
     } catch (error) {
       console.error('❌ Error handling call location response:', error);
     }
   }
 
-  /**
-   * Cria um chamado com o local como título
-   */
-  private async createCallWithLocation(userId: number, location: string, phone: string): Promise<any> {
+  private async updateLastCallWithMessage(phone: string, messageBody: string, userId: string): Promise<void> {
     try {
-      const { PrismaClient } = require('@prisma/client');
-      const prisma = new PrismaClient();
-      
-      const call = await prisma.call.create({
-        data: {
-          title: location, // Local como título
-          description: `Chamado criado via WhatsApp - ${phone}`,
-          status: 'OPEN',
-          priority: 'MEDIUM',
-          userId,
-        },
-      });
-      
-      await prisma.$disconnect();
-      return call;
-    } catch (error) {
-      console.error('❌ Error creating call with location:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Atualiza o último chamado do usuário com a nova mensagem
-   */
-  private async updateLastCallWithMessage(phone: string, messageBody: string): Promise<void> {
-    try {
-      console.log('🔄 Atualizando último chamado com nova mensagem');
-      
-      // Buscar usuário pelo telefone
-      const user = await this.findUserByPhone(phone);
-      if (!user) {
-        console.log('❌ Usuário não encontrado para atualizar chamado');
-        return;
-      }
-
-      // Buscar o último chamado do usuário
-      const lastCall = await this.getLastCallByUserId(user.id);
+      const lastCall = await CallRepository.findActiveCallForUser(userId);
       if (!lastCall) {
-        console.log('ℹ️ Nenhum chamado encontrado para o usuário');
+        console.log('ℹ️ No active call found for user');
         return;
       }
 
-      // Atualizar descrição do chamado concatenando com a nova mensagem (apenas para texto)
       const timestamp = new Date().toLocaleString('pt-BR');
       const updatedDescription = `${lastCall.description}\n[${timestamp}] ${messageBody}`;
       
-      await this.updateCallDescription(lastCall.id, updatedDescription);
+      await CallRepository.update(lastCall.id, { description: updatedDescription });
 
-      // Salvar mensagem na tabela whatsapp_messages
-      await WhatsAppMessageModel.create({
+      await WhatsAppMessageRepository.create({
         phone,
         message: messageBody,
         messageType: 'text',
-        userId: user.id,
+        userId,
         callId: lastCall.id,
         isFromUser: true,
       });
 
-      console.log('✅ Chamado atualizado com nova mensagem:', lastCall.id);
-      
+      console.log('✅ Call updated with new message:', lastCall.id);
     } catch (error) {
       console.error('❌ Error updating last call with message:', error);
     }
   }
 
-  /**
-   * Busca usuário pelo telefone
-   */
-  private async findUserByPhone(phone: string): Promise<any> {
-    try {
-      const { PrismaClient } = require('@prisma/client');
-      const prisma = new PrismaClient();
-      
-      const normalizedPhone = this.normalizePhoneForSearch(phone);
-      
-      const user = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { phone: phone },
-            { phone: normalizedPhone },
-            { phone: `+${normalizedPhone}` },
-            { phone: `55${normalizedPhone}` },
-          ]
-        }
-      });
-      
-      await prisma.$disconnect();
-      return user;
-    } catch (error) {
-      console.error('❌ Error finding user by phone:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Busca o último chamado do usuário
-   */
-  private async getLastCallByUserId(userId: number): Promise<any> {
-    try {
-      const { PrismaClient } = require('@prisma/client');
-      const prisma = new PrismaClient();
-      
-      const lastCall = await prisma.call.findFirst({
-        where: { userId },
-        orderBy: { createdAt: 'desc' }
-      });
-      
-      await prisma.$disconnect();
-      return lastCall;
-    } catch (error) {
-      console.error('❌ Error getting last call by user ID:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Atualiza a descrição do chamado
-   */
-  private async updateCallDescription(callId: number, newDescription: string): Promise<void> {
-    try {
-      const { PrismaClient } = require('@prisma/client');
-      const prisma = new PrismaClient();
-      
-      await prisma.call.update({
-        where: { id: callId },
-        data: { description: newDescription }
-      });
-      
-      await prisma.$disconnect();
-    } catch (error) {
-      console.error('❌ Error updating call description:', error);
-    }
-  }
-
-  /**
-   * Send auto-reply message
-   */
   private async sendAutoReply(phone: string, message: string): Promise<void> {
     try {
       if (!this.client || !this.isConnected) {
@@ -1045,14 +431,9 @@ export class WPPConnectDirectService {
         return;
       }
 
-      console.log('📤 Sending auto-reply:', message);
-      console.log('📤 To:', phone);
-
-      // Send message via WPPConnect
       await this.client.sendText(`${phone}@c.us`, message);
 
-      // Save sent message to database
-      await WhatsAppMessageModel.create({
+      await WhatsAppMessageRepository.create({
         phone,
         message,
         messageType: 'text',
@@ -1060,28 +441,20 @@ export class WPPConnectDirectService {
       });
 
       console.log('✅ Auto-reply sent successfully');
-      
     } catch (error) {
       console.error('❌ Error sending auto-reply:', error);
     }
   }
 
-  /**
-   * Send a message to a specific phone number
-   */
   async sendMessage(phone: string, message: string): Promise<void> {
     try {
       if (!this.client || !this.isConnected) {
         throw new Error('WhatsApp client not connected');
       }
 
-      console.log('📤 Sending message:', message);
-      console.log('📤 To:', phone);
-
       await this.client.sendText(`${phone}@c.us`, message);
 
-      // Save sent message to database
-      await WhatsAppMessageModel.create({
+      await WhatsAppMessageRepository.create({
         phone,
         message,
         messageType: 'text',
@@ -1089,16 +462,12 @@ export class WPPConnectDirectService {
       });
 
       console.log('✅ Message sent successfully');
-      
     } catch (error) {
       console.error('❌ Error sending message:', error);
       throw error;
     }
   }
 
-  /**
-   * Get connection status
-   */
   getConnectionStatus(): { isConnected: boolean; hasQRCode: boolean; qrCode?: string } {
     return {
       isConnected: this.isConnected,
@@ -1107,88 +476,29 @@ export class WPPConnectDirectService {
     };
   }
 
-  /**
-   * Get QR code for connection
-   */
   async getQrCode(): Promise<string | null> {
     if (this.isConnected) {
-      console.log('📱 WhatsApp is connected, no QR code needed');
-      return null; // No QR code needed when connected
+      return null;
     }
     
     const now = Date.now();
-    console.log('📱 getQrCode called - isConnected:', this.isConnected, 'hasQrCode:', !!this.qrCode, 'lastQrCodeTime:', this.lastQrCodeTime);
     
-    // Double-check runtime connection state from client to avoid stale flags
-    if (this.client && !this.isConnected) {
-      try {
-        const anyClient: any = this.client as any;
-        const logged: boolean | undefined = typeof anyClient.isLoggedIn === 'function' ? await anyClient.isLoggedIn() : undefined;
-        const state: string | undefined = typeof anyClient.getConnectionState === 'function' ? await anyClient.getConnectionState() : undefined;
-        const normalized = String(state ?? '').toUpperCase();
-        const looksConnected = logged === true || ['CONNECTED', 'MAIN', 'NORMAL', 'SYNCING'].some((s) => normalized.includes(s));
-        if (looksConnected) {
-          this.isConnected = true;
-          if (this.qrCode) this.qrCode = null;
-          console.log('✅ Detected logged-in state via runtime check; marking as connected');
-          return null;
-        }
-      } catch (e) {
-        console.log('⚠️ Runtime connection check failed:', e);
-      }
-    }
-    
-    // se já temos qr válido nos ultimos 45s, devolve
     if (this.qrCode && (now - this.lastQrCodeTime) < 45000) {
-      console.log('📱 Returning cached QR code:', this.qrCode.substring(0, 50) + '...');
       return this.qrCode;
     }
     
-    // se não tivermos QR, forçar criação / reinicializar client para gerar QR
     if (!this.client && !this.isInitializing) {
-      // iniciar cliente se não iniciado
-      console.log('📱 Client not initialized, starting...');
       this.initialize().catch(err => console.error('Error in lazy initialize:', err));
       return 'QR_CODE_GENERATING';
     }
     
-    // se cache expirou, limpar QR antigo para forçar novo (catchQR vai atualizar quando o browser gerar o proximo)
-    if (this.qrCode && (now - this.lastQrCodeTime) >= 45000) {
-      console.log('📱 QR cache expired, waiting for next generation from WPPConnect...');
-      // Não limpamos aqui para evitar flicker, o catchQR vai sobrepor quando chegar
-      return this.qrCode;
-    }
-    
-    // se client existe, mas qrCode ainda n foi gerado, sinalizar que está gerando
     if (this.client && !this.qrCode) {
-      console.log('📱 Client exists but QR code not generated yet');
       return 'QR_CODE_GENERATING';
     }
     
-    console.log('📱 Final return - qrCode:', this.qrCode ? 'exists' : 'null');
     return this.qrCode ?? 'QR_CODE_GENERATING';
   }
 
-
-  /**
-   * Normalize phone number for database search
-   */
-  private normalizePhoneForSearch(phone: string): string {
-    // Remove todos os caracteres não numéricos
-    const digitsOnly = phone.replace(/\D/g, '');
-    
-    // Se começar com 55, mantém como está
-    if (digitsOnly.startsWith('55')) {
-      return digitsOnly;
-    }
-    
-    // Se não começar com 55, adiciona 55 no início
-    return '55' + digitsOnly;
-  }
-
-  /**
-   * Disconnect WhatsApp session
-   */
   async disconnect(): Promise<void> {
     try {
       if (this.client) {
@@ -1203,5 +513,4 @@ export class WPPConnectDirectService {
   }
 }
 
-// Export singleton instance
 export const wppConnectDirectService = new WPPConnectDirectService();

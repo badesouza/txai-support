@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../lib/prisma';
 import bcrypt from 'bcryptjs';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/jwt';
+import { UserRepository } from '../repositories';
+import { Profile } from '../types/models';
 
 export class UserController {
     static async register(req: Request, res: Response) {
@@ -27,9 +28,7 @@ export class UserController {
                 });
             }
 
-            const existingUser = await prisma.user.findUnique({
-                where: { email: userData.email }
-            });
+            const existingUser = await UserRepository.findByEmail(userData.email);
             console.log('Usuário existente:', existingUser);
 
             if (existingUser) {
@@ -39,46 +38,23 @@ export class UserController {
             console.log('Criando hash da senha...');
             const hashedPassword = await bcrypt.hash(userData.password, 10);
             console.log('Hash da senha criado');
-            console.log('🔧 TESTE - Chegou na normalização!');
-            console.log('🔧 TESTE - userData.phone:', userData.phone);
 
             // Normalizar telefone: remover formatação e adicionar 55 se necessário
-            const digitsOnly = userData.phone.replace(/\D/g, '');
-            console.log('🔧 TESTE - digitsOnly:', digitsOnly);
-            
-            let normalizedPhone: string;
-            if (digitsOnly.startsWith('55')) {
-                // Já tem código do país
-                normalizedPhone = digitsOnly;
-            } else if (digitsOnly.length === 11) {
-                // 11 dígitos = DDD + 9 dígitos (celular com 9) - REMOVER o 9 e ADICIONAR 55
-                const without9 = digitsOnly.slice(0, 2) + digitsOnly.slice(3); // Remove o 9
-                normalizedPhone = '55' + without9;
-            } else if (digitsOnly.length === 10) {
-                // 10 dígitos = DDD + 8 dígitos (fixo) - ADICIONAR 55
-                normalizedPhone = '55' + digitsOnly;
-            } else {
-                // Outros casos, adicionar 55
-                normalizedPhone = '55' + digitsOnly;
-            }
-            
-            console.log('🔧 TESTE - normalizedPhone:', normalizedPhone);
+            const normalizedPhone = UserController.normalizePhoneNumber(userData.phone);
 
             console.log('Criando usuário com dados:', {
                 ...userData,
                 password: '[REDACTED]',
                 phone: normalizedPhone,
-                profile: userData.profile as 'USER' | 'ADMIN'
+                profile: userData.profile as Profile
             });
 
-            const user = await prisma.user.create({
-                data: {
-                    name: userData.name,
-                    email: userData.email,
-                    password: hashedPassword,
-                    phone: normalizedPhone,
-                    profile: userData.profile as 'USER' | 'ADMIN'
-                }
+            const user = await UserRepository.create({
+                name: userData.name,
+                email: userData.email,
+                password: hashedPassword,
+                phone: normalizedPhone,
+                profile: userData.profile as Profile
             });
             console.log('Usuário criado:', user);
 
@@ -117,9 +93,7 @@ export class UserController {
             const { email, password } = req.body;
             console.log('Tentativa de login para email:', email);
             
-            const user = await prisma.user.findUnique({
-                where: { email }
-            });
+            const user = await UserRepository.findByEmail(email);
             console.log('Usuário encontrado:', user ? 'Sim' : 'Não');
             
             if (!user) {
@@ -170,9 +144,7 @@ export class UserController {
                 return res.status(401).json({ message: 'User not authenticated' });
             }
 
-            const user = await prisma.user.findUnique({
-                where: { id: userId }
-            });
+            const user = await UserRepository.findById(String(userId));
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
             }
@@ -203,10 +175,11 @@ export class UserController {
                 updateData.phone = UserController.normalizePhoneNumber(updateData.phone);
             }
             
-            const updatedUser = await prisma.user.update({
-                where: { id: userId },
-                data: updateData
-            });
+            const updatedUser = await UserRepository.update(String(userId), updateData);
+
+            if (!updatedUser) {
+                return res.status(404).json({ message: 'User not found' });
+            }
 
             res.json({
                 id: updatedUser.id,
@@ -228,9 +201,7 @@ export class UserController {
             }
 
             const { currentPassword, newPassword } = req.body;
-            const user = await prisma.user.findUnique({
-                where: { id: userId }
-            });
+            const user = await UserRepository.findById(String(userId));
             
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
@@ -242,10 +213,7 @@ export class UserController {
             }
 
             const hashedPassword = await bcrypt.hash(newPassword, 10);
-            await prisma.user.update({
-                where: { id: userId },
-                data: { password: hashedPassword }
-            });
+            await UserRepository.update(String(userId), { password: hashedPassword });
 
             res.json({ message: 'Password updated successfully' });
         } catch (error) {
@@ -255,8 +223,8 @@ export class UserController {
 
     static async updateUserById(req: Request, res: Response) {
         try {
-            const userId = parseInt(req.params.id);
-            if (isNaN(userId)) {
+            const userId = req.params.id;
+            if (!userId) {
                 return res.status(400).json({ message: 'Invalid user ID' });
             }
 
@@ -272,7 +240,7 @@ export class UserController {
                         validProfiles: ['USER', 'ADMIN']
                     });
                 }
-                updateData.profile = profile;
+                updateData.profile = profile as Profile;
             }
 
             // Se uma nova senha foi fornecida, gerar o hash
@@ -283,10 +251,11 @@ export class UserController {
                 updateData.password = hashedPassword;
             }
 
-            const updatedUser = await prisma.user.update({
-                where: { id: userId },
-                data: updateData
-            });
+            const updatedUser = await UserRepository.update(userId, updateData);
+
+            if (!updatedUser) {
+                return res.status(404).json({ message: 'User not found' });
+            }
 
             res.json({
                 id: updatedUser.id,
@@ -297,12 +266,6 @@ export class UserController {
             });
         } catch (error: any) {
             console.error('Erro ao atualizar usuário:', error);
-            
-            // Se o usuário não foi encontrado (P2025)
-            if (error.code === 'P2025') {
-                return res.status(404).json({ message: 'User not found' });
-            }
-            
             res.status(500).json({ 
                 message: 'Error updating user',
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -315,62 +278,47 @@ export class UserController {
             const page = parseInt(req.query.page as string) || 1;
             const limit = parseInt(req.query.limit as string) || 10;
             const search = req.query.search as string;
-            const skip = (page - 1) * limit;
 
-            let where: any = {
-                NOT: {
-                    AND: [
-                        { email: 'admin@txai.com' },
-                        { profile: 'ADMIN' }
-                    ]
-                }
-            };
+            const result = await UserRepository.findMany({
+                page,
+                limit,
+                orderBy: 'createdAt',
+                orderDirection: 'desc'
+            });
 
+            // Filter out admin@txai.com and apply search
+            let filteredUsers = result.data.filter(user => 
+                !(user.email === 'admin@txai.com' && user.profile === 'ADMIN')
+            );
+
+            // Apply search filter
             if (search) {
-                where = {
-                    ...where,
-                    OR: [
-                        { name: { contains: search } },
-                        { email: { contains: search } },
-                        { phone: { contains: search } }
-                    ]
-                };
+                const searchLower = search.toLowerCase();
+                filteredUsers = filteredUsers.filter(user =>
+                    user.name.toLowerCase().includes(searchLower) ||
+                    user.email.toLowerCase().includes(searchLower) ||
+                    user.phone.includes(search)
+                );
             }
 
-            const [users, total] = await Promise.all([
-                prisma.user.findMany({
-                    skip,
-                    take: limit,
-                    where,
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
-                        phone: true,
-                        profile: true,
-                        createdAt: true,
-                        updatedAt: true
-                    },
-                    orderBy: {
-                        createdAt: 'desc'
-                    }
-                }),
-                prisma.user.count({ where })
-            ]);
-
-            // Formatar telefones para exibição
-            const formattedUsers = users.map(user => ({
-                ...user,
-                phone: UserController.formatPhoneForDisplay(user.phone)
+            // Format phones for display
+            const formattedUsers = filteredUsers.map(user => ({
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                phone: UserController.formatPhoneForDisplay(user.phone),
+                profile: user.profile,
+                createdAt: user.createdAt,
+                updatedAt: user.updatedAt
             }));
 
             res.json({
                 users: formattedUsers,
                 pagination: {
-                    total,
+                    total: result.total,
                     page,
                     limit,
-                    totalPages: Math.ceil(total / limit)
+                    totalPages: result.totalPages
                 }
             });
         } catch (error) {
@@ -397,9 +345,7 @@ export class UserController {
                 });
             }
 
-            const existingUser = await prisma.user.findUnique({
-                where: { email: userData.email }
-            });
+            const existingUser = await UserRepository.findByEmail(userData.email);
             console.log('Usuário existente:', existingUser);
 
             if (existingUser) {
@@ -410,28 +356,8 @@ export class UserController {
             const hashedPassword = await bcrypt.hash(userData.password, 10);
             console.log('Hash da senha criado');
 
-            // Normalizar telefone: remover formatação e adicionar 55 se necessário
-            console.log('🔧 [createUser] ANTES da normalização - userData.phone:', userData.phone);
-            const digitsOnly = userData.phone.replace(/\D/g, '');
-            console.log('🔧 [createUser] digitsOnly:', digitsOnly);
-            
-            let normalizedPhone: string;
-            if (digitsOnly.startsWith('55')) {
-                // Já tem código do país
-                normalizedPhone = digitsOnly;
-            } else if (digitsOnly.length === 11) {
-                // 11 dígitos = DDD + 9 dígitos (celular com 9) - REMOVER o 9 e ADICIONAR 55
-                const without9 = digitsOnly.slice(0, 2) + digitsOnly.slice(3); // Remove o 9
-                normalizedPhone = '55' + without9;
-            } else if (digitsOnly.length === 10) {
-                // 10 dígitos = DDD + 8 dígitos (fixo) - ADICIONAR 55
-                normalizedPhone = '55' + digitsOnly;
-            } else {
-                // Outros casos, adicionar 55
-                normalizedPhone = '55' + digitsOnly;
-            }
-            
-            console.log('🔧 [createUser] normalizedPhone:', normalizedPhone);
+            // Normalizar telefone
+            const normalizedPhone = UserController.normalizePhoneNumber(userData.phone);
 
             console.log('Criando usuário com dados:', {
                 ...userData,
@@ -440,14 +366,12 @@ export class UserController {
                 profile: userData.profile
             });
 
-            const user = await prisma.user.create({
-                data: {
-                    name: userData.name,
-                    email: userData.email,
-                    password: hashedPassword,
-                    phone: normalizedPhone,
-                    profile: userData.profile
-                }
+            const user = await UserRepository.create({
+                name: userData.name,
+                email: userData.email,
+                password: hashedPassword,
+                phone: normalizedPhone,
+                profile: userData.profile as Profile
             });
             console.log('Usuário criado:', user);
 
@@ -473,14 +397,12 @@ export class UserController {
 
     static async getUserById(req: Request, res: Response) {
         try {
-            const userId = parseInt(req.params.id);
-            if (isNaN(userId)) {
+            const userId = req.params.id;
+            if (!userId) {
                 return res.status(400).json({ message: 'Invalid user ID' });
             }
 
-            const user = await prisma.user.findUnique({
-                where: { id: userId }
-            });
+            const user = await UserRepository.findById(userId);
 
             if (!user) {
                 return res.status(404).json({ message: 'User not found' });
@@ -500,22 +422,19 @@ export class UserController {
 
     static async deleteUser(req: Request, res: Response) {
         try {
-            const userId = parseInt(req.params.id);
-            if (isNaN(userId)) {
+            const userId = req.params.id;
+            if (!userId) {
                 return res.status(400).json({ message: 'Invalid user ID' });
             }
 
-            await prisma.user.delete({
-                where: { id: userId }
-            });
+            const deleted = await UserRepository.delete(userId);
+
+            if (!deleted) {
+                return res.status(404).json({ message: 'User not found' });
+            }
 
             res.json({ message: 'User deleted successfully' });
         } catch (error: any) {
-            // Se o usuário não foi encontrado (P2025)
-            if (error.code === 'P2025') {
-                return res.status(404).json({ message: 'User not found' });
-            }
-            
             res.status(500).json({ message: 'Error deleting user' });
         }
     }
@@ -534,6 +453,14 @@ export class UserController {
         if (digitsOnly.startsWith('55')) {
             console.log('🔧 normalizePhoneNumber - Já tem 55, retornando:', digitsOnly);
             return digitsOnly;
+        }
+        
+        // Se tem 11 dígitos (DDD + 9 dígitos), remover o 9 e adicionar 55
+        if (digitsOnly.length === 11) {
+            const without9 = digitsOnly.slice(0, 2) + digitsOnly.slice(3);
+            const result = '55' + without9;
+            console.log('🔧 normalizePhoneNumber - 11 dígitos, retornando:', result);
+            return result;
         }
         
         // Se não começar com 55, adiciona 55 no início
@@ -567,4 +494,4 @@ export class UserController {
         // Se não conseguir formatar, retorna o original
         return phone;
     }
-} 
+}

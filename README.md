@@ -26,6 +26,8 @@ Sobe todos os serviços (PostgreSQL + Backend + Frontend) com um único comando:
 - **API Health**: http://localhost:3001/api/health
 - **API Docs (Swagger)**: http://localhost:3001/api-docs
 - **PostgreSQL**: localhost:5433
+- **Redis**: localhost:6379
+- **GCS Emulator**: http://localhost:4443
 
 ### Opção 2: Frontend em Modo Desenvolvimento
 
@@ -62,12 +64,28 @@ O sistema cria automaticamente um usuário administrador:
 - **Container**: Docker + Docker Compose
 - **Infraestrutura**: Google Cloud Platform (GCP)
 
+### Local vs Cloud
+
+O sistema foi projetado com **paridade de ambiente** - o mesmo código roda localmente e na nuvem:
+
+| Componente | Local (Docker) | Nuvem (GCP) |
+|------------|----------------|-------------|
+| **Database** | PostgreSQL container | Cloud SQL |
+| **Redis** | Redis container | Redis Cloud (free) |
+| **Storage** | fake-gcs-server | Cloud Storage |
+| **Backend** | Node.js container | Cloud Run |
+| **Frontend** | Nginx container | Firebase Hosting |
+| **Custo** | **$0** | **~$10-15/mês** |
+
+> 📖 Veja o [Guia Completo Local vs Cloud](docs/architecture/LOCAL_VS_CLOUD.md) para detalhes.
+
 ### Ambiente de Produção (GCP)
 
 - **Frontend**: Firebase Hosting (CDN global + roteamento SPA)
 - **Backend**: Cloud Run (API containerizada serverless)
 - **Banco de Dados**: Cloud SQL (PostgreSQL gerenciado)
 - **Storage**: Cloud Storage (uploads de arquivos)
+- **Redis**: Redis Cloud (sessões WhatsApp)
 - **IaC**: OpenTofu/Terraform
 
 ## 🗄️ Banco de Dados
@@ -241,6 +259,8 @@ Consulte a [documentação completa em docs/](docs/README.md) para mais detalhes
 Toda a documentação está organizada em `docs/`:
 
 - **[Visão Geral](docs/README.md)** - Índice completo da documentação
+- **[Local vs Cloud](docs/architecture/LOCAL_VS_CLOUD.md)** - Diferenças entre ambientes local e produção
+- **[Storage e Redis](docs/STORAGE_AND_REDIS_SETUP.md)** - Configuração de armazenamento e sessões
 - **[Guia de Deploy](docs/infra/deployment-guide.md)** - Deploy detalhado no GCP
 - **[Terraform](docs/infra/terraform.md)** - Infraestrutura como código
 - **[Scripts GCP](scripts/gcp/README.md)** - Referência dos scripts de deploy

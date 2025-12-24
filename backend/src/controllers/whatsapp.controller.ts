@@ -191,7 +191,7 @@ export class WhatsAppController {
       const { callId, phone } = req.query;
       
       if (callId) {
-        const messages = await WhatsAppMessageService.getCallMessageHistory(Number(callId));
+        const messages = await WhatsAppMessageService.getCallMessageHistory(String(callId));
         res.json({ messages });
       } else if (phone) {
         const messages = await WhatsAppMessageService.getPhoneMessageHistory(String(phone));
@@ -204,4 +204,4 @@ export class WhatsAppController {
       res.status(500).json({ error: 'Error getting message history' });
     }
   }
-} 
+}

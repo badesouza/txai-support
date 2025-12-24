@@ -1,59 +1,86 @@
 # Documentação
 
-## Visão geral
+## Visão Geral
 
-O objetivo desta documentação é manter **paridade local ↔ GCP** e preparar o caminho para:
-- Backend no Cloud Run
-- Banco no Cloud SQL (Postgres)
-- Uploads/arquivos no Google Cloud Storage (GCS)
-- Multi-tenant com isolamento por tenant (futuro) e RLS no Postgres
+O objetivo desta documentação é manter **paridade local ↔ GCP** - o mesmo código roda em ambos os ambientes:
 
-## Contrato de URLs (local)
+- Backend no Cloud Run (ou Docker local)
+- Banco no Cloud SQL (ou PostgreSQL local)
+- Uploads no Google Cloud Storage (ou fake-gcs-server local)
+- Sessões WhatsApp no Redis Cloud (ou Redis local)
 
-Sem reverse proxy (sem nginx no docker-compose):
-- **Frontend:** `http://localhost:3000`
-- **API:** `http://localhost:3001/api`
-- **API Docs:** `http://localhost:3001/api-docs`
-- **Uploads (temporário/local):** `http://localhost:3001/uploads`
+## Guias Principais
 
-O frontend chama a API via `REACT_APP_API_URL=http://localhost:3001/api`.
+### Arquitetura
 
-## Contrato de URLs (GCP)
+- **[Local vs Cloud](architecture/LOCAL_VS_CLOUD.md)** - Diferenças completas entre ambientes
+- **[Storage e Redis](STORAGE_AND_REDIS_SETUP.md)** - Configuração de armazenamento e sessões
 
-Ambiente alvo (dev-first):
-- **Frontend:** Firebase Hosting em `https://<project-id>.web.app`
-- **API:** Cloud Run (`https://<service>-<hash>-uc.a.run.app`)
-- **Uploads:** GCS privado com URLs assinadas (geradas pelo backend)
+### Infraestrutura
 
-> Quando o driver GCS estiver ativo, o backend deve retornar URLs assinadas para download/upload.
+- **[Guia de Deploy](infra/deployment-guide.md)** - Deploy detalhado no GCP
+- **[Terraform](infra/terraform.md)** - Infraestrutura como código
 
-## Deploy local para GCP (Cloud Run)
+### Desenvolvimento
 
-Scripts locais (sem CI/CD ainda):
-- `scripts/gcp/deploy-backend.sh`
-- `scripts/gcp/deploy-backend.ps1`
+- **[Quickstart](quickstart.md)** - Início rápido
+- **[Docker](docker.md)** - Configuração local com Docker
+- **[Testes](testing.md)** - Como executar os testes
+- **[Troubleshooting](troubleshooting.md)** - Soluções para problemas comuns
 
-Pré-requisitos: `gcloud` autenticado no projeto dev e Artifact Registry criado (via Terraform).
+## URLs dos Serviços
 
-## Guias
+### Local (Docker Compose)
 
-- Quickstart: `docs/quickstart.md`
-- Docker/local: `docs/docker.md`
-- Testes: `docs/testing.md`
-- Contribuição: `docs/contributing.md`
-- Infra (OpenTofu/Terraform compatível): `docs/infra/terraform.md`
+| Serviço | URL |
+|---------|-----|
+| Frontend | http://localhost:8080 |
+| Backend API | http://localhost:3001/api |
+| API Docs | http://localhost:3001/api-docs |
+| PostgreSQL | localhost:5433 |
+| Redis | localhost:6379 |
+| GCS Emulator | http://localhost:4443 |
 
-## Variáveis de ambiente (notas)
+### Produção (GCP)
 
-- Backend:
-  - `DATABASE_URL` (Postgres)
-  - `JWT_SECRET`
-  - `CORS_ORIGINS` (CSV) ou `CORS_ORIGIN` (único)
-  - `STORAGE_DRIVER` (`local` | `gcs`)
-  - `UPLOAD_PATH` (caminho local para uploads)
-  - `GCS_BUCKET`, `GCS_PROJECT_ID`, `GCS_CREDENTIALS_JSON` (placeholders)
-  - `GCS_UPLOADS_PREFIX`, `GCS_SIGNED_URL_TTL_SECONDS`
-- Frontend:
-  - `REACT_APP_API_URL`
+| Serviço | URL |
+|---------|-----|
+| Frontend | https://`<project-id>`.web.app |
+| Backend API | https://`<service>`.run.app |
+| PostgreSQL | Cloud SQL (via proxy) |
+| Redis | Redis Cloud (TLS) |
+| Storage | Cloud Storage (signed URLs) |
 
-> Observação: uploads serão migrados para GCS; o caminho `/uploads` é apenas para paridade local no curto prazo.
+## Variáveis de Ambiente
+
+### Backend
+
+| Variável | Descrição | Local | Cloud |
+|----------|-----------|-------|-------|
+| `DATABASE_URL` | Conexão PostgreSQL | `postgres:5432` | Cloud SQL proxy |
+| `REDIS_URL` | Conexão Redis | `redis:6379` | Redis Cloud (TLS) |
+| `STORAGE_DRIVER` | Driver de storage | `gcs` | `gcs` |
+| `STORAGE_EMULATOR_HOST` | Endpoint do emulador | `http://fake-gcs:4443` | (não definido) |
+| `GCS_BUCKET` | Bucket de uploads | `txai-uploads` | `project-uploads` |
+| `WHATSAPP_TOKEN_STORE` | Storage de sessões | `redis` | `redis` |
+| `JWT_SECRET` | Segredo JWT | `.env` | Secret Manager |
+
+### Frontend
+
+| Variável | Descrição |
+|----------|-----------|
+| `REACT_APP_API_URL` | URL da API backend |
+
+## Perfis de Ambiente
+
+| Arquivo | Uso |
+|---------|-----|
+| `.env.local.template` | Todos os serviços em Docker |
+| `.env.dev.template` | Todos os serviços na nuvem |
+| `.env.hybrid.example` | Mistura local e nuvem |
+
+## Scripts de Deploy
+
+- `scripts/gcp/deploy-backend.sh` - Deploy do backend
+- `scripts/gcp/deploy-frontend-firebase.sh` - Deploy do frontend
+- `scripts/gcp/first-time-deploy.sh` - Setup inicial completo

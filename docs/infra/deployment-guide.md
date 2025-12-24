@@ -2,7 +2,10 @@
 
 This guide covers the complete, automated deployment of TXAI Support to Google Cloud Platform using best practices and a single command.
 
+> **Note**: Before deploying to GCP, we recommend understanding the differences between local and cloud environments. See the [Local vs Cloud Guide](../architecture/LOCAL_VS_CLOUD.md) for a comprehensive comparison.
+
 ## Table of Contents
+- [Local vs Cloud](#local-vs-cloud)
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
 - [Quick Start (One Command)](#quick-start-one-command)
@@ -12,6 +15,23 @@ This guide covers the complete, automated deployment of TXAI Support to Google C
 - [Verification](#verification)
 - [Troubleshooting](#troubleshooting)
 - [CI/CD Setup](#cicd-setup)
+
+---
+
+## Local vs Cloud
+
+The application is designed with **environment parity** - the same code runs in both environments:
+
+| Component | Local (Docker) | Cloud (GCP) |
+|-----------|----------------|-------------|
+| Database | PostgreSQL container | Cloud SQL |
+| Redis | Redis container | Redis Cloud (free tier) |
+| Storage | fake-gcs-server | Cloud Storage |
+| Backend | Node.js container | Cloud Run |
+| Frontend | Nginx container | Firebase Hosting |
+| **Cost** | $0 | ~$10-15/month |
+
+For detailed comparison, see [Local vs Cloud Guide](../architecture/LOCAL_VS_CLOUD.md).
 
 ---
 
