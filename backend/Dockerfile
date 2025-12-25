@@ -31,7 +31,8 @@ RUN npm run build
 FROM base AS production
 WORKDIR /app
 
-# Install Chrome and dependencies for WPPConnect
+# Install Chrome and dependencies for WPPConnect/Puppeteer in Alpine
+# These packages are required for headless Chromium to work properly
 RUN apk add --no-cache \
     chromium \
     nss \
@@ -40,6 +41,11 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
+    ttf-dejavu \
+    dbus \
+    mesa-gl \
+    libstdc++ \
+    udev \
     tzdata \
     && rm -rf /var/cache/apk/*
 
@@ -60,8 +66,9 @@ COPY --from=builder /app/package*.json ./
 COPY startup.sh ./
 RUN chmod +x startup.sh
 
-# Create uploads directory
-RUN mkdir -p uploads
+# No local directories needed - all state is external:
+# - Files → GCS
+# - WhatsApp sessions → Redis
 
 # Expose port
 EXPOSE 3001

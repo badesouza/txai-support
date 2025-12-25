@@ -5,7 +5,6 @@ import './tracing';
 
 import express from 'express';
 import cors from 'cors';
-import fs from 'fs';
 import process from 'process';
 import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
@@ -46,29 +45,11 @@ app.use(
 );
 app.use(express.json());
 
-// Configurar o diretório de uploads
-const uploadsPath = storage.uploadsDir;
+// Note: No local uploads directory needed
+// All files are stored in GCS (configured via STORAGE_DRIVER=gcs)
+// File URLs are generated via storage.getFileUrl() which returns GCS signed URLs
 
-if (!fs.existsSync(uploadsPath)) {
-  fs.mkdirSync(uploadsPath, { recursive: true });
-}
-
-// 3) Servir arquivos estáticos de /uploads com melhor tratamento de erros
-app.use(
-  '/uploads',
-  express.static(uploadsPath, {
-    maxAge: '30d',
-    setHeaders(res, filePath) {
-      // Permitir CORS também nos assets
-      const origin = res.req.headers.origin;
-      if (origin && allowedOriginsSet.has(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-      }
-    },
-  })
-);
-
-// 4) Montar documentação Swagger
+// 3) Montar documentação Swagger
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: 'TXAI Support API Documentation',
@@ -80,13 +61,13 @@ app.get('/api-docs.json', (req, res) => {
   res.send(swaggerSpec);
 });
 
-// 5) Montar rotas da API
+// 4) Montar rotas da API
 app.use('/api', routes);
 
-// 6) Middleware de tratamento de erro
+// 5) Middleware de tratamento de erro
 app.use(errorHandler);
 
-// 7) Initialize Firebase and start server
+// 6) Initialize Firebase and start server
 async function startServer() {
   try {
     // Initialize Firebase
