@@ -1,7 +1,7 @@
 import { create, SocketState, Whatsapp } from '@wppconnect-team/wppconnect';
 import fs from 'fs';
+import path from 'path';
 import { WhatsAppMessageRepository, UserRepository, CallRepository } from '../repositories';
-import * as waJs from '@wppconnect/wa-js';
 import { storage } from '../storage/storage';
 
 export interface WhatsAppMessage {
@@ -96,6 +96,13 @@ export class WPPConnectDirectService {
       console.log('🌐 Token store:', tokenStore);
       console.log('🌐 Creating WPPConnect client...');
 
+      // Ensure tokens directory exists for multidevice support
+      const tokensDir = path.resolve('./tokens', this.sessionName);
+      if (!fs.existsSync(tokensDir)) {
+        fs.mkdirSync(tokensDir, { recursive: true });
+        console.log('📁 Created tokens directory:', tokensDir);
+      }
+
       const createOptions: any = {
         session: this.sessionName,
         headless: true,
@@ -103,14 +110,15 @@ export class WPPConnectDirectService {
         useChrome: false,
         debug: false,
         logQR: true,
-        autoClose: false as any,
+        autoClose: 0, // Disable auto-close completely (0 = disabled)
         disableWelcome: true,
-        waitForLogin: false,
-        updatesLog: false,
+        waitForLogin: true, // Wait for login to complete - important for QR flow
+        updatesLog: true, // Enable for debugging
         catchQR: (base64Qrimg: string, asciiQR: string, attempts: number, urlCode: string) => {
           console.log('📸 ========== QR CODE CALLBACK TRIGGERED ==========');
           console.log('📸 Attempts:', attempts);
           console.log('📸 Has base64Qrimg:', !!base64Qrimg);
+          console.log('📸 urlCode (data-ref):', urlCode ? urlCode.substring(0, 50) + '...' : 'N/A');
           
           if (!base64Qrimg) {
             console.error('❌ QR Code is empty!');
@@ -122,7 +130,52 @@ export class WPPConnectDirectService {
           this.lastQrCodeTime = Date.now();
           console.log('✅ QR Code captured and stored successfully');
         },
+        statusFind: (statusSession: string, session: string) => {
+          console.log('📱 ========== STATUS FIND CALLBACK ==========');
+          console.log('📱 Status Session:', statusSession);
+          console.log('📱 Session name:', session);
+          
+          // Handle different status scenarios
+          switch (statusSession) {
+            case 'isLogged':
+              console.log('✅ User is already logged in');
+              this.isConnected = true;
+              this.qrCode = null;
+              break;
+            case 'notLogged':
+              console.log('📱 User not logged in - QR code will be generated');
+              this.isConnected = false;
+              break;
+            case 'qrReadSuccess':
+              console.log('✅ QR code scanned successfully');
+              break;
+            case 'qrReadFail':
+              console.log('❌ QR code scan failed');
+              break;
+            case 'browserClose':
+              console.log('🔴 Browser closed');
+              this.isConnected = false;
+              break;
+            case 'desconnectedMobile':
+              console.log('📵 Disconnected from mobile');
+              this.isConnected = false;
+              break;
+            case 'serverClose':
+              console.log('🔴 Server connection closed');
+              this.isConnected = false;
+              break;
+            case 'autocloseCalled':
+              console.log('⏱️ Auto-close was triggered');
+              break;
+            default:
+              console.log('ℹ️ Unknown status:', statusSession);
+          }
+        },
+        onLoadingScreen: (percent: number, message: string) => {
+          console.log(`⏳ Loading WhatsApp Web: ${percent}% - ${message}`);
+        },
         puppeteerOptions: {
+          userDataDir: tokensDir, // Required for multidevice support
           ...(chromePath ? { executablePath: chromePath } : {}),
           args: [
             '--no-sandbox',
@@ -131,13 +184,13 @@ export class WPPConnectDirectService {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
+            '--single-process', // Important for Docker
             '--disable-gpu',
             '--disable-web-security',
             '--disable-features=VizDisplayCompositor',
             '--disable-breakpad',
             '--disable-extensions',
             '--no-default-browser-check',
-            '--start-maximized',
             '--disable-infobars',
             '--window-size=1920,1080',
             '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'

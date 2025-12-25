@@ -81,6 +81,8 @@ services:
       dockerfile: Dockerfile
     container_name: txai-backend
     restart: unless-stopped
+    # Increase shared memory for Chromium/Puppeteer (default 64MB is too small)
+    shm_size: '2gb'
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -111,6 +113,7 @@ services:
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/whatsapp-sessions:/app/whatsapp-sessions
+      - ./backend/tokens:/app/tokens
     depends_on:
       firebase-emulator:
         condition: service_healthy
