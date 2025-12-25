@@ -283,4 +283,10 @@ firebase-debug.log
 firebase-debug.*.log
 
 # NOTE: .firebaserc and firebase.json ARE committed (project configuration)
+# Terraform variables (contains secrets - NEVER commit!)
 infra/terraform/environments/dev/terraform.tfvars
+*.tfvars
+!*.tfvars.example
+
+# Deployment state files (generated during deployment)
+scripts/gcp/.deploy-state/

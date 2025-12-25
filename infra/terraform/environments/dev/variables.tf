@@ -63,61 +63,6 @@ variable "backend_env_vars" {
   default     = {}
 }
 
-variable "cloudsql_enabled" {
-  type        = bool
-  description = "Whether to provision Cloud SQL (Postgres)"
-  default     = true
-}
-
-variable "database_instance_name" {
-  type        = string
-  description = "Cloud SQL instance name"
-  default     = ""
-}
-
-variable "database_name" {
-  type        = string
-  description = "Postgres database name"
-  default     = "txai_support"
-}
-
-variable "database_user" {
-  type        = string
-  description = "Postgres username"
-  default     = "txai"
-}
-
-variable "database_password" {
-  type        = string
-  description = "Postgres password (leave empty to auto-generate)"
-  default     = ""
-  sensitive   = true
-}
-
-variable "database_tier" {
-  type        = string
-  description = "Cloud SQL machine tier"
-  default     = "db-f1-micro"
-}
-
-variable "database_disk_size_gb" {
-  type        = number
-  description = "Cloud SQL disk size in GB"
-  default     = 10
-}
-
-variable "database_availability_type" {
-  type        = string
-  description = "Cloud SQL availability type (ZONAL or REGIONAL)"
-  default     = "ZONAL"
-}
-
-variable "database_backup_enabled" {
-  type        = bool
-  description = "Enable automated backups"
-  default     = true
-}
-
 variable "service_accounts" {
   type = object({
     ci_deployer      = string
@@ -142,3 +87,46 @@ variable "firestore_location" {
   description = "Firestore database location (should match region for latency)"
   default     = "nam5" # US multi-region - use "us-central" for single region
 }
+
+# =============================================================================
+# Redis Cloud Configuration (for WPPConnect session storage)
+# =============================================================================
+
+variable "redis_cloud_api_key" {
+  type        = string
+  description = "Redis Cloud API key"
+  sensitive   = true
+}
+
+variable "redis_cloud_secret_key" {
+  type        = string
+  description = "Redis Cloud secret key"
+  sensitive   = true
+}
+
+variable "redis_enabled" {
+  type        = bool
+  description = "Whether to provision Redis Cloud for session storage"
+  default     = true
+}
+
+variable "redis_subscription_name" {
+  type        = string
+  description = "Redis Cloud subscription name"
+  default     = "txai-support-dev"
+}
+
+variable "redis_database_name" {
+  type        = string
+  description = "Redis Cloud database name"
+  default     = "sessions"
+}
+
+variable "redis_memory_mb" {
+  type        = number
+  description = "Redis database memory limit in MB (free tier: 30MB)"
+  default     = 30
+}
+
+# Note: Redis Cloud free tier only supports AWS us-east-1
+# This is hardcoded in redis-cloud.tf for simplicity

@@ -1,5 +1,8 @@
 // backend/src/server.ts
 
+// CRITICAL: This MUST be the first import to enable OpenTelemetry instrumentation
+import './tracing';
+
 import express from 'express';
 import cors from 'cors';
 import path from 'path';

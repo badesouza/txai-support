@@ -38,33 +38,6 @@ output "backend_service_name" {
   description = "Cloud Run service name for backend API"
 }
 
-output "backend_database_url" {
-  value       = var.cloudsql_enabled ? local.default_backend_env_vars.DATABASE_URL : ""
-  description = "DATABASE_URL for Cloud Run (Cloud SQL socket)"
-  sensitive   = true
-}
-
-output "cloudsql_instance_connection_name" {
-  value       = var.cloudsql_enabled ? google_sql_database_instance.main[0].connection_name : ""
-  description = "Cloud SQL instance connection name"
-}
-
-output "cloudsql_database_name" {
-  value       = var.cloudsql_enabled ? google_sql_database.app[0].name : ""
-  description = "Cloud SQL database name"
-}
-
-output "cloudsql_database_user" {
-  value       = var.cloudsql_enabled ? google_sql_user.app[0].name : ""
-  description = "Cloud SQL database user"
-}
-
-output "cloudsql_database_password" {
-  value       = var.cloudsql_enabled ? local.database_password : ""
-  description = "Cloud SQL database password"
-  sensitive   = true
-}
-
 output "ci_deployer_email" {
   value = google_service_account.ci_deployer.email
 }
@@ -75,4 +48,28 @@ output "runtime_api_email" {
 
 output "runtime_whatsapp_email" {
   value = google_service_account.runtime_whatsapp.email
+}
+
+# =============================================================================
+# Redis Cloud Outputs
+# =============================================================================
+
+output "redis_enabled" {
+  value       = var.redis_enabled
+  description = "Whether Redis Cloud is enabled"
+}
+
+output "redis_subscription_id" {
+  value       = var.redis_enabled ? rediscloud_essentials_subscription.main[0].id : ""
+  description = "Redis Cloud Essentials subscription ID"
+}
+
+output "redis_database_id" {
+  value       = var.redis_enabled ? rediscloud_essentials_database.sessions[0].id : ""
+  description = "Redis Cloud Essentials database ID"
+}
+
+output "redis_secret_id" {
+  value       = var.redis_enabled ? google_secret_manager_secret.redis_url[0].secret_id : ""
+  description = "Secret Manager secret ID for Redis URL"
 }
