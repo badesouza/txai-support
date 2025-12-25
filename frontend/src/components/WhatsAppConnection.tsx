@@ -261,11 +261,11 @@ const WhatsAppConnection: React.FC = () => {
       {!isConnected && !qrCode && (
         <div className="text-center my-5">
           <div className="flex justify-center items-center my-5">
-            <div className="w-[300px] h-[300px] border-2 border-gray-300 rounded-lg flex items-center justify-center bg-gray-100">
-              <div className="text-center">
+            <div className="w-full max-w-xs sm:max-w-sm md:max-w-md aspect-square border-2 border-gray-300 rounded-lg flex items-center justify-center bg-gray-100">
+              <div className="text-center px-4">
                 <Spin size="large" />
-                <p className="mt-4 text-gray-600">Gerando QR Code...</p>
-                <p className="text-sm text-gray-500 mt-2">Aguarde enquanto o QR Code é gerado</p>
+                <p className="mt-4 text-gray-600 text-sm sm:text-base">Gerando QR Code...</p>
+                <p className="text-xs sm:text-sm text-gray-500 mt-2">Aguarde enquanto o QR Code é gerado</p>
               </div>
             </div>
           </div>
@@ -273,18 +273,18 @@ const WhatsAppConnection: React.FC = () => {
       )}
 
       {!isConnected && qrCode && (
-        <div className="text-center my-5">
-          <p className="text-gray-700 dark:text-gray-300 mb-4">Escaneie este código QR com o WhatsApp para conectar</p>
+        <div className="text-center my-5 px-4">
+          <p className="text-gray-700 dark:text-gray-300 mb-4 text-sm sm:text-base">Escaneie este código QR com o WhatsApp para conectar</p>
           <div className="flex justify-center items-center my-5">
-            <div className="bg-gray-100 p-8 rounded-xl shadow-2xl border-4 border-gray-400 inline-block">
+            <div className="bg-gray-100 p-4 sm:p-6 md:p-8 rounded-xl shadow-2xl border-2 sm:border-4 border-gray-400 inline-block max-w-full">
               {/* Container externo com fundo contrastante */}
-              <div className="bg-white p-6 border-4 border-black rounded-lg shadow-lg">
+              <div className="bg-white p-3 sm:p-4 md:p-6 border-2 sm:border-4 border-black rounded-lg shadow-lg">
                 {/* Margem interna para criar "quiet zone" do QR code */}
                 <div className="flex justify-center items-center">
                   <img
                     src={qrCode}
                     alt="Código QR do WhatsApp"
-                    className="w-[260px] h-[260px]"
+                    className="w-full max-w-[200px] sm:max-w-[240px] md:max-w-[260px] h-auto aspect-square"
                     style={{
                       imageRendering: 'crisp-edges',
                       filter: 'contrast(1.8) brightness(1.2)',
@@ -296,7 +296,7 @@ const WhatsAppConnection: React.FC = () => {
                   />
                 </div>
               </div>
-              <p className="text-sm text-gray-700 mt-4 font-semibold">📱 Aponte a câmera do WhatsApp para o código acima</p>
+              <p className="text-xs sm:text-sm text-gray-700 mt-3 sm:mt-4 font-semibold">📱 Aponte a câmera do WhatsApp para o código acima</p>
               <p className="text-xs text-gray-500 mt-1">Certifique-se de que o código está bem iluminado e visível</p>
             </div>
           </div>

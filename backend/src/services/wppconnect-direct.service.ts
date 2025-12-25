@@ -24,6 +24,33 @@ export class WPPConnectDirectService {
   private lastQrCodeTime: number = 0;
   private pendingCallLocations: Map<string, { userId: string; timestamp: number }> = new Map();
 
+  /**
+   * Auto-detect Chrome/Chromium path based on OS
+   */
+  private getChromePath(): string {
+    const platform = process.platform;
+
+    // Check environment variables first
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      return process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+    if (process.env.CHROME_PATH) {
+      return process.env.CHROME_PATH;
+    }
+
+    // Auto-detect based on platform
+    switch (platform) {
+      case 'darwin': // macOS
+        return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+      case 'win32': // Windows
+        return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+      case 'linux': // Linux
+        return '/usr/bin/chromium-browser';
+      default:
+        return '/usr/bin/chromium-browser';
+    }
+  }
+
   async initialize(): Promise<void> {
     if (this.isInitializing) {
       console.log('⚠️ WPPConnect is already initializing...');
@@ -31,11 +58,11 @@ export class WPPConnectDirectService {
     }
 
     this.isInitializing = true;
-    
+
     try {
       console.log('🚀 Initializing WPPConnect Direct Service...');
-      
-      const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH || '/usr/bin/chromium-browser';
+
+      const chromePath = this.getChromePath();
       const tokenStore = process.env.WHATSAPP_TOKEN_STORE || 'file';
       const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
       
