@@ -8,11 +8,7 @@ import { Profile } from '../types/models';
 export class UserController {
     static async register(req: Request, res: Response) {
         try {
-            console.log('Body recebido:', req.body);
-            console.log('Content-Type:', req.headers['content-type']);
-
             const { confirmPassword, ...userData } = req.body;
-            console.log('Dados do usuário:', userData);
 
             if (!userData.email || !userData.password || !userData.name || !userData.phone) {
                 return res.status(400).json({ 
@@ -29,25 +25,15 @@ export class UserController {
             }
 
             const existingUser = await UserRepository.findByEmail(userData.email);
-            console.log('Usuário existente:', existingUser);
 
             if (existingUser) {
                 return res.status(400).json({ message: 'Email already registered' });
             }
 
-            console.log('Criando hash da senha...');
             const hashedPassword = await bcrypt.hash(userData.password, 10);
-            console.log('Hash da senha criado');
 
             // Normalizar telefone: remover formatação e adicionar 55 se necessário
             const normalizedPhone = UserController.normalizePhoneNumber(userData.phone);
-
-            console.log('Criando usuário com dados:', {
-                ...userData,
-                password: '[REDACTED]',
-                phone: normalizedPhone,
-                profile: userData.profile as Profile
-            });
 
             const user = await UserRepository.create({
                 name: userData.name,
@@ -56,7 +42,6 @@ export class UserController {
                 phone: normalizedPhone,
                 profile: userData.profile as Profile
             });
-            console.log('Usuário criado:', user);
 
             const signOptions: jwt.SignOptions = { expiresIn: JWT_EXPIRES_IN };
             const token = jwt.sign(
@@ -91,26 +76,19 @@ export class UserController {
     static async login(req: Request, res: Response) {
         try {
             const { email, password } = req.body;
-            console.log('Tentativa de login para email:', email);
             
             const user = await UserRepository.findByEmail(email);
-            console.log('Usuário encontrado:', user ? 'Sim' : 'Não');
             
             if (!user) {
-                console.log('Usuário não encontrado');
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
 
-            console.log('Usuário encontrado, verificando senha...');
             const isValidPassword = await bcrypt.compare(password, user.password);
-            console.log('Senha válida?', isValidPassword);
             
             if (!isValidPassword) {
-                console.log('Senha inválida');
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
 
-            console.log('Login bem sucedido, gerando token...');
             const signOptions: jwt.SignOptions = { expiresIn: JWT_EXPIRES_IN };
             const token = jwt.sign(
                 { id: user.id, email: user.email, profile: user.profile },

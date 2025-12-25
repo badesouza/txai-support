@@ -1,4 +1,5 @@
 import { create, SocketState, Whatsapp } from '@wppconnect-team/wppconnect';
+import fs from 'fs';
 import { WhatsAppMessageRepository, UserRepository, CallRepository } from '../repositories';
 import * as waJs from '@wppconnect/wa-js';
 import { storage } from '../storage/storage';
@@ -25,30 +26,50 @@ export class WPPConnectDirectService {
   private pendingCallLocations: Map<string, { userId: string; timestamp: number }> = new Map();
 
   /**
-   * Auto-detect Chrome/Chromium path based on OS
+   * Auto-detect Chrome/Chromium path based on OS.
+   * Returns null if no valid path is found so Puppeteer can use its bundled Chromium.
    */
-  private getChromePath(): string {
+  private getChromePath(): string | null {
+    const envCandidates = [
+      process.env.PUPPETEER_EXECUTABLE_PATH,
+      process.env.CHROME_PATH
+    ].filter(Boolean) as string[];
+
+    for (const candidate of envCandidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+      console.warn(`⚠️ Chrome path not found at ${candidate}; falling back to auto-detect.`);
+    }
+
     const platform = process.platform;
+    const candidates: string[] = [];
 
-    // Check environment variables first
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-      return process.env.PUPPETEER_EXECUTABLE_PATH;
-    }
-    if (process.env.CHROME_PATH) {
-      return process.env.CHROME_PATH;
-    }
-
-    // Auto-detect based on platform
     switch (platform) {
       case 'darwin': // macOS
-        return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+        candidates.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+        candidates.push('/Applications/Chromium.app/Contents/MacOS/Chromium');
+        break;
       case 'win32': // Windows
-        return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+        candidates.push('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe');
+        candidates.push('C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe');
+        break;
       case 'linux': // Linux
-        return '/usr/bin/chromium-browser';
+        candidates.push('/usr/bin/google-chrome');
+        candidates.push('/usr/bin/chromium-browser');
+        candidates.push('/usr/bin/chromium');
+        break;
       default:
-        return '/usr/bin/chromium-browser';
+        candidates.push('/usr/bin/chromium-browser');
     }
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   async initialize(): Promise<void> {
@@ -66,7 +87,11 @@ export class WPPConnectDirectService {
       const tokenStore = process.env.WHATSAPP_TOKEN_STORE || 'file';
       const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
       
-      console.log('🌐 Using Chrome Path:', chromePath);
+      if (chromePath) {
+        console.log('🌐 Using Chrome Path:', chromePath);
+      } else {
+        console.log('🌐 No Chrome path found; using bundled Chromium');
+      }
       console.log('🌐 Session name:', this.sessionName);
       console.log('🌐 Token store:', tokenStore);
       console.log('🌐 Creating WPPConnect client...');
@@ -98,7 +123,7 @@ export class WPPConnectDirectService {
           console.log('✅ QR Code captured and stored successfully');
         },
         puppeteerOptions: {
-          executablePath: chromePath,
+          ...(chromePath ? { executablePath: chromePath } : {}),
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',

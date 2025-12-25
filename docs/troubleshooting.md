@@ -14,12 +14,44 @@ Common issues and their solutions.
 ## 401 Unauthorized
 
 ### Symptom
-Frontend receives 401 errors on protected endpoints (`/api/users`, `/api/calls`) after login.
+Frontend receives 401 errors on login or protected endpoints.
 
-### Cause
-JWT token mismatch - usually an old token signed with a different `JWT_SECRET`.
+### Common Causes
 
-### Solution
+#### 1. Admin User Not Created
+
+**Symptom:** Login fails immediately with 401, backend logs show "Usuário não encontrado"
+
+**Cause:** `ADMIN_DEFAULT_PASSWORD` environment variable not set in Cloud Run, so the seed script skips creating the admin user.
+
+**Solution:**
+```bash
+# Set the admin password
+gcloud run services update txai-backend \
+  --region us-central1 \
+  --update-env-vars ADMIN_DEFAULT_PASSWORD="your-secure-password"
+
+# Verify in logs that admin was created
+gcloud run logs read txai-backend --limit=50 | grep -A 5 "Admin user created"
+```
+
+Expected log output:
+```
+✅ Admin user created: {
+  id: '...',
+  email: 'admin@txai.com',
+  name: 'Admin'
+}
+🎉 Seed completed successfully!
+```
+
+#### 2. JWT Token Mismatch
+
+**Symptom:** 401 errors on protected endpoints (`/api/users`, `/api/calls`) after successful login.
+
+**Cause:** Old JWT token signed with different `JWT_SECRET`.
+
+**Solution:**
 
 **Local:** Clear browser localStorage and login again:
 1. DevTools → Application → Local Storage

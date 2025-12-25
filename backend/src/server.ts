@@ -5,7 +5,6 @@ import './tracing';
 
 import express from 'express';
 import cors from 'cors';
-import path from 'path';
 import fs from 'fs';
 import process from 'process';
 import swaggerUi from 'swagger-ui-express';
@@ -18,6 +17,7 @@ import { initializeFirebase, getFirestore } from './lib/firebase';
 
 const app = express();
 const port = process.env.PORT || 3001;
+const whatsappEnabled = String(process.env.WHATSAPP_ENABLED ?? 'true').toLowerCase() !== 'false';
 
 // 1) Configurar CORS (sem reverse proxy no compose)
 const defaultCorsOrigins = ['http://localhost:8080', 'http://localhost:8081', 'http://localhost:3000'];
@@ -47,26 +47,11 @@ app.use(
 app.use(express.json());
 
 // Configurar o diretório de uploads
-console.log('=== SERVER UPLOADS INFO ===');
-console.log('__dirname:', __dirname);
-console.log('Caminho atual:', process.cwd());
-
 const uploadsPath = storage.uploadsDir;
-console.log('Caminho da pasta uploads:', uploadsPath);
 
 if (!fs.existsSync(uploadsPath)) {
-  console.log('Criando diretório uploads...');
   fs.mkdirSync(uploadsPath, { recursive: true });
 }
-
-console.log('Configuração do uploads:', {
-  __dirname,
-  uploadsPath,
-  exists: fs.existsSync(uploadsPath),
-  isDirectory: fs.existsSync(uploadsPath) ? fs.statSync(uploadsPath).isDirectory() : false,
-  permissions: fs.existsSync(uploadsPath) ? fs.statSync(uploadsPath).mode : 'N/A',
-  files: fs.existsSync(uploadsPath) ? fs.readdirSync(uploadsPath) : []
-});
 
 // 3) Servir arquivos estáticos de /uploads com melhor tratamento de erros
 app.use(
@@ -79,26 +64,9 @@ app.use(
       if (origin && allowedOriginsSet.has(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
       }
-      
-      // Log para debug
-      console.log('📁 Servindo arquivo:', filePath);
-      console.log('📁 Arquivo existe:', fs.existsSync(filePath));
-      if (fs.existsSync(filePath)) {
-        const stats = fs.statSync(filePath);
-        console.log('📁 Tamanho do arquivo:', stats.size, 'bytes');
-        console.log('📁 Permissões:', stats.mode);
-      }
     },
   })
 );
-
-// Middleware para log de requisições de imagens
-app.use('/uploads', (req, res, next) => {
-  console.log('🖼️ Requisição de imagem:', req.url);
-  console.log('🖼️ Caminho completo:', path.join(uploadsPath, req.url));
-  console.log('🖼️ Arquivo existe:', fs.existsSync(path.join(uploadsPath, req.url)));
-  next();
-});
 
 // 4) Montar documentação Swagger
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
@@ -125,19 +93,22 @@ async function startServer() {
     initializeFirebase();
     const db = getFirestore();
     
-    // Test Firestore connection
-    const testRef = db.collection('_health').doc('check');
-    await testRef.set({ timestamp: new Date(), status: 'ok' });
-    console.log('✅ Conectado ao Firestore');
+    // Basic Firestore connection check (read-only)
+    await db.collection('_health').doc('check').get();
+    console.log('✅ Firestore ready');
 
-    // Start WPPConnect Direct Service (async, don't wait)
-    wppConnectDirectService.initialize()
-      .then(() => {
-        console.log('✅ WPPConnect Direct Service started');
-      })
-      .catch((error) => {
-        console.error('❌ Failed to start WPPConnect Direct Service:', error);
-      });
+    // Start WPPConnect Direct Service (optional, async, don't wait)
+    if (whatsappEnabled) {
+      wppConnectDirectService.initialize()
+        .then(() => {
+          console.log('✅ WPPConnect Direct Service started');
+        })
+        .catch((error) => {
+          console.error('❌ Failed to start WPPConnect Direct Service:', error);
+        });
+    } else {
+      console.log('ℹ️ WhatsApp disabled (WHATSAPP_ENABLED=false)');
+    }
 
     app.listen(port, () => {
       console.log(`🚀 Server rodando em http://localhost:${port}`);
