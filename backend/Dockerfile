@@ -24,9 +24,6 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 
-# Generate Prisma Client
-RUN npx prisma generate
-
 # Build application
 RUN npm run build
 
@@ -57,10 +54,11 @@ COPY --from=deps /app/node_modules ./node_modules
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
+# Copy startup script
+COPY startup.sh ./
+RUN chmod +x startup.sh
 
 # Create uploads directory
 RUN mkdir -p uploads
@@ -68,10 +66,9 @@ RUN mkdir -p uploads
 # Expose port
 EXPOSE 3001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+# Health check (longer start-period to allow for seeding)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3001/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start application
-CMD ["sh", "-c", "npx prisma generate && npx prisma migrate deploy && node dist/server.js"]
-
+CMD ["./startup.sh"]

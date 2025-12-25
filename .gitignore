@@ -13,13 +13,16 @@ backend/dist/
 frontend/build/
 frontend/dist/
 
-# Environment files
+# Environment files (secrets - NEVER commit!)
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 .env.production
+
+# BUT keep the example template
+!.env.example
 
 # Logs
 logs/
@@ -127,7 +130,12 @@ tokens/
 *.sqlite3
 
 # Prisma
-backend/prisma/migrations/
+# IMPORTANT: Prisma migrations must be committed (do not ignore).
+# Keep this section for other Prisma-related ignores if needed.
+
+
+# Local secrets (must exist locally, never commit)
+.secrets.local
 
 # PM2
 .pm2/
@@ -140,6 +148,16 @@ backend/prisma/migrations/
 # Backup files
 *.backup
 *.bak
+
+# =============================================================================
+# IaC (OpenTofu/Terraform)
+# =============================================================================
+**/.terraform/
+**/.terraform.lock.hcl
+**/*.tfstate
+**/*.tfstate.*
+**/crash.log
+**/crash.*.log
 
 
 
@@ -170,12 +188,16 @@ build/
 dist/
 out/
 
-# Deploy scripts (old)
-*.sh
+# Deploy scripts (old - keeping setup.sh and setup.ps1)
 deploy-*.md
-setup-*.md
 fix-*.md
 WHATSAPP-*.md
+
+# GitHub / CI local notes (never commit)
+**/GITHUB_SECRETS*.md
+
+# Test reports / generated artifacts
+frontend/playwright-report/
 
 # =============================================================================
 # Testing
@@ -249,4 +271,22 @@ test.sqlite
 test.sqlite3
 
 # Test logs
-test.log 
+test.log
+
+# =============================================================================
+# Firebase
+# =============================================================================
+
+# Firebase cache and debug logs
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+
+# NOTE: .firebaserc and firebase.json ARE committed (project configuration)
+# Terraform variables (contains secrets - NEVER commit!)
+infra/terraform/environments/dev/terraform.tfvars
+*.tfvars
+!*.tfvars.example
+
+# Deployment state files (generated during deployment)
+scripts/gcp/.deploy-state/

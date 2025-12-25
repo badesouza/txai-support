@@ -1,0 +1,117 @@
+# ======================================
+# TXAI Support - Terraform Variables
+# Environment: dev
+# ======================================
+#
+# Copy this file to terraform.tfvars and customize for your environment
+# Do NOT commit terraform.tfvars to version control (it's in .gitignore)
+#
+
+# Required: GCP Project Configuration
+project_id = "seu-projeto"                 # e.g., "bizybox-gcp-project-dev"
+region     = "us-central1"                 # GCP region for all resources
+
+# Environment Configuration
+environment_name = "dev"                   # Used for resource naming
+
+# ======================================
+# Storage Configuration
+# ======================================
+
+# Frontend Bucket (optional - auto-generated if not specified)
+
+# Uploads Bucket (optional - auto-generated if not specified)
+# gcs_uploads_bucket_name = "my-custom-uploads-bucket"
+
+# Bucket Location (optional - defaults to region)
+# gcs_bucket_location = "US"
+
+# ======================================
+# Backend Service Configuration
+# ======================================
+
+backend_service_name       = "txai-backend"
+backend_container_port     = 3001
+backend_allow_unauthenticated = true       # Set to false for private API
+
+# Initial placeholder image (will be replaced by deploy-backend.sh)
+backend_image = "gcr.io/cloudrun/hello"
+
+# ======================================
+# Backend Environment Variables
+# ======================================
+# These are injected into the Cloud Run service
+# Sensitive values should use Secret Manager (not shown here for simplicity)
+
+backend_env_vars = {
+  # Node Environment
+  NODE_ENV = "production"
+
+  # JWT Configuration
+  # Generate a secure secret: openssl rand -base64 32
+  JWT_SECRET     = "troque-isto-por-um-secret-seguro"
+  JWT_EXPIRES_IN = "24h"
+
+  # SMTP Configuration (for password recovery)
+  SMTP_HOST = "smtp.gmail.com"
+  SMTP_PORT = "587"
+  SMTP_USER = "your-email@gmail.com"
+  SMTP_PASS = "your-app-specific-password"
+  EMAIL_FROM = "noreply@txai-support.com"
+
+  # WhatsApp Configuration
+  WHATSAPP_SESSION_PATH = "/tmp/whatsapp-sessions"
+  CHROME_PATH = "/usr/bin/chromium-browser"
+
+  # Logging
+  LOG_LEVEL = "info"
+
+  # Security
+  BCRYPT_ROUNDS = "12"
+  RATE_LIMIT_WINDOW = "900000"        # 15 minutes in milliseconds
+  RATE_LIMIT_MAX_REQUESTS = "100"
+
+  # File Upload Configuration
+  MAX_FILE_SIZE = "10485760"          # 10MB in bytes
+  ALLOWED_FILE_TYPES = "image/jpeg,image/png,image/gif,image/webp"
+  GCS_UPLOADS_PREFIX = "uploads"
+  GCS_SIGNED_URL_TTL_SECONDS = "900"  # 15 minutes
+
+  # Note: DATABASE_URL, STORAGE_DRIVER, GCS_BUCKET, GCS_PROJECT_ID, and CORS_ORIGIN
+  # are automatically set by Terraform based on the infrastructure created
+}
+
+# ======================================
+# Database Configuration (Cloud SQL)
+# ======================================
+
+cloudsql_enabled = true                    # Set to false to disable Cloud SQL
+
+# Database Instance Configuration
+# database_instance_name = "custom-instance-name"  # Optional, auto-generated if not set
+database_name     = "txai_support"
+database_user     = "txai"
+# database_password = ""                   # Leave empty to auto-generate
+
+# Database Resources
+database_tier              = "db-f1-micro" # See: https://cloud.google.com/sql/pricing
+database_disk_size_gb      = 10
+database_availability_type = "ZONAL"       # "REGIONAL" for high availability
+database_backup_enabled    = true
+
+# ======================================
+# Service Accounts
+# ======================================
+# Customize service account names if needed (defaults are usually fine)
+
+# service_accounts = {
+#   ci_deployer      = "ci-deployer"
+#   runtime_api      = "runtime-api"
+#   runtime_whatsapp = "runtime-whatsapp"
+# }
+
+# ======================================
+# Artifact Registry
+# ======================================
+
+artifact_repo_id = "txai-support"          # Docker repository name

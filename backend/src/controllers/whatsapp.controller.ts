@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { wppConnectDirectService } from '../services/wppconnect-direct.service';
-import { WhatsAppMessageService } from '../services/whatsapp-message.service';
+import { WhatsAppMessageRepository } from '../repositories';
 
 export class WhatsAppController {
   private lastStatusCheck = 0;
@@ -98,19 +98,14 @@ export class WhatsAppController {
       // Get QR code from the direct service
       const qrCode = await wppConnectDirectService.getQrCode();
       if (qrCode === null) {
-        return res.json({ connected: true, qrCode: null, phone });
-      }
-      if (!qrCode) {
-        return res.json({ connected: false, qrCode: null, phone: null });
-      }
-      if (qrCode === 'QR_CODE_GENERATING') {
-        return res.status(202).json({ connected: false, qrCode: 'QR_CODE_GENERATING', phone: null });
+        // Not connected, but QR isn't ready yet.
+        return res.status(202).json({ connected: false, qrCode: null, phone: null, state: 'GENERATING_QR' });
       }
       
       // qr é um data URL completo (data:image/png;base64,...)
       console.log('✅ QR Code gerado com sucesso:', qrCode.substring(0, 50) + '...');
       this.lastQrCodeGenerated = qrCode; // Salvar em cache
-      return res.json({ connected: false, qrCode, phone: null });
+      return res.json({ connected: false, qrCode, phone: null, state: 'QR_READY' });
       
     } catch (error) {
       console.error('❌ Erro ao gerar QR Code:', error);
@@ -141,60 +136,15 @@ export class WhatsAppController {
     }
   }
 
-  async webhook(req: Request, res: Response) {
-    try {
-      const payload: any = req.body;
-      console.log('📥 WPPConnect Webhook received');
-
-      const messages: any[] = Array.isArray(payload?.messages) ? payload.messages : (payload?.message ? [payload.message] : []);
-      if (messages.length === 0 && payload?.phone && payload?.message) {
-        await WhatsAppMessageService.processIncomingMessage({
-          phone: String(payload.phone),
-          message: String(payload.message),
-          messageType: String(payload.messageType || 'text'),
-        });
-        return res.status(200).json({ ok: true });
-      }
-
-      for (const m of messages) {
-        try {
-          const fromField: string = m?.from || m?.chatId || m?.remoteJid || m?.sender?.id || '';
-          const phone = fromField ? String(fromField).replace(/[^0-9]/g, '').replace(/^55(?!\d{13}$)/, '55') : (payload?.phone ? String(payload.phone) : '');
-          const isFromMe = !!(m?.fromMe || m?.self);
-          if (!phone || isFromMe) continue;
-
-          // Detect text content
-          const bodyText: string | undefined = m?.body || m?.text?.body || m?.message?.conversation || m?.content;
-          const messageType: string = m?.type || (m?.mimetype?.startsWith('image/') ? 'image' : 'text');
-
-          if (!bodyText && messageType === 'text') continue;
-
-          await WhatsAppMessageService.processIncomingMessage({
-            phone,
-            message: bodyText || '[non-text message]',
-            messageType,
-          });
-        } catch (innerErr) {
-          console.error('❌ Error handling individual webhook message:', innerErr);
-        }
-      }
-
-      return res.status(200).json({ ok: true });
-    } catch (error) {
-      console.error('❌ Webhook handler error:', error);
-      return res.status(500).json({ error: 'Webhook processing failed' });
-    }
-  }
-
   async getMessageHistory(req: Request, res: Response) {
     try {
       const { callId, phone } = req.query;
       
       if (callId) {
-        const messages = await WhatsAppMessageService.getCallMessageHistory(Number(callId));
+        const messages = await WhatsAppMessageRepository.findByCallId(String(callId));
         res.json({ messages });
       } else if (phone) {
-        const messages = await WhatsAppMessageService.getPhoneMessageHistory(String(phone));
+        const messages = await WhatsAppMessageRepository.findByPhone(String(phone));
         res.json({ messages });
       } else {
         res.status(400).json({ error: 'callId or phone parameter required' });
@@ -204,4 +154,4 @@ export class WhatsAppController {
       res.status(500).json({ error: 'Error getting message history' });
     }
   }
-} 
+}

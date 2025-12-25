@@ -1,0 +1,46 @@
+{
+  "name": "TXAI Support E2E Tests",
+  "description": "End-to-end tests for TXAI Support application",
+  "tests": [
+    {
+      "id": "login-flow",
+      "name": "Login Flow",
+      "description": "Test user authentication flow",
+      "steps": [
+        "Navigate to frontend URL",
+        "Fill email field with test user",
+        "Fill password field",
+        "Click login button",
+        "Verify dashboard is displayed"
+      ]
+    },
+    {
+      "id": "create-ticket",
+      "name": "Create Ticket",
+      "description": "Test ticket creation flow",
+      "steps": [
+        "Navigate to tickets page",
+        "Click create ticket button",
+        "Fill ticket form",
+        "Submit ticket",
+        "Verify ticket appears in list"
+      ]
+    },
+    {
+      "id": "health-check",
+      "name": "API Health Check",
+      "description": "Verify backend API is healthy",
+      "steps": [
+        "GET /api/health",
+        "Verify status is ok"
+      ]
+    }
+  ],
+  "defaults": {
+    "timeout": 30000,
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    }
+  }
+}

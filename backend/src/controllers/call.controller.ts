@@ -1,89 +1,83 @@
 // src/controllers/CallController.ts
 import { Request, Response } from "express";
-import { prisma } from '../lib/prisma';
-import { Prisma } from '@prisma/client';
-import path from 'path';
-
-interface Call {
-  id: number;
-  title: string;
-  description: string;
-  status: string;
-  priority: string;
-  userId: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-}
+import { storage } from '../storage/storage';
+import { CallRepository, CallStatusHistoryRepository, UserRepository } from '../repositories';
+import { CallImage } from '../types/models';
 
 export class CallController {
+  private static async hydrateImages<T extends { images?: Array<{ path: string }> }>(item: T): Promise<T> {
+    if (!item.images || item.images.length === 0) {
+      return item;
+    }
+
+    const images = await Promise.all(
+      item.images.map(async (image) => ({
+        ...image,
+        path: await storage.getFileUrl(image.path),
+      }))
+    );
+
+    return {
+      ...item,
+      images,
+    };
+  }
+
   static async listAllCalls(req: Request, res: Response) {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
       const search = req.query.search as string;
-      const skip = (page - 1) * limit;
 
-      console.log('Search request:', { search, page, limit }); // Debug log
+      console.log('Search request:', { search, page, limit });
 
-      let where: Prisma.CallWhereInput | undefined = undefined;
-      if (search) {
-        const searchId = parseInt(search);
-        where = {
-          OR: [
-            ...(isNaN(searchId) ? [] : [{ id: searchId }]),
-            { title: { contains: search } },
-            { description: { contains: search } }
-          ]
-        };
-      }
-
-      const [calls, total] = await Promise.all([
-        prisma.call.findMany({
-          skip,
-          take: limit,
-          orderBy: {
-            createdAt: 'desc'
-          },
-          where,
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                phone: true
-              }
-            },
-            images: true
-          }
-        }),
-        prisma.call.count({
-          where
-        })
-      ]);
+      const result = await CallRepository.findMany({
+        page,
+        limit,
+        orderBy: 'createdAt',
+        orderDirection: 'desc',
+        search
+      });
 
       // Debug logs
-      console.log('Calls with images:', calls.map(call => ({
+      console.log('Calls with images:', result.data.map(call => ({
         id: call.id,
         title: call.title,
         imagesCount: call.images?.length,
         images: call.images
       })));
 
+      // Hydrate images with URLs and add user info
+      const callsWithUrls = await Promise.all(result.data.map(async (call) => {
+        const hydratedCall = await CallController.hydrateImages(call);
+        
+        // Get user info if available
+        let user = null;
+        if (call.userId) {
+          const userDoc = await UserRepository.findById(call.userId);
+          if (userDoc) {
+            user = {
+              id: userDoc.id,
+              name: userDoc.name,
+              email: userDoc.email,
+              phone: userDoc.phone
+            };
+          }
+        }
+
+        return {
+          ...hydratedCall,
+          user
+        };
+      }));
+
       res.json({
-        calls,
+        calls: callsWithUrls,
         pagination: {
-          total,
+          total: result.total,
           page,
           limit,
-          totalPages: Math.ceil(total / limit)
+          totalPages: result.totalPages
         }
       });
     } catch (error) {
@@ -94,31 +88,33 @@ export class CallController {
 
   static async getCallById(req: Request, res: Response) {
     try {
-      const callId = parseInt(req.params.id);
-      if (isNaN(callId)) {
+      const callId = req.params.id;
+      if (!callId) {
         return res.status(400).json({ message: 'Invalid call ID' });
       }
 
-      const call = await prisma.call.findUnique({
-        where: { id: callId },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true
-            }
-          },
-          images: true
-        }
-      });
+      const call = await CallRepository.findByIdWithImages(callId);
 
       if (!call) {
         return res.status(404).json({ message: 'Call not found' });
       }
 
-      res.json(call);
+      // Get user info
+      let user = null;
+      if (call.userId) {
+        const userDoc = await UserRepository.findById(call.userId);
+        if (userDoc) {
+          user = {
+            id: userDoc.id,
+            name: userDoc.name,
+            email: userDoc.email,
+            phone: userDoc.phone
+          };
+        }
+      }
+
+      const callWithUrls = await CallController.hydrateImages(call);
+      res.json({ ...callWithUrls, user });
     } catch (error) {
       console.error('Error fetching call:', error);
       res.status(500).json({ message: 'Error fetching call' });
@@ -165,6 +161,9 @@ export class CallController {
         });
       }
 
+      // Get user info for denormalization
+      const user = await UserRepository.findById(String(userId));
+
       console.log('Criando chamado com dados:', {
         title,
         description,
@@ -174,40 +173,46 @@ export class CallController {
         files: req.files
       });
 
-      // Criar o chamado com as imagens
-      const call = await prisma.call.create({
-        data: {
-          title,
-          description,
-          status: formattedStatus,
-          priority: formattedPriority,
-          userId,
-          images: {
-            create: Array.isArray(req.files) ? req.files.map((file: Express.Multer.File) => {
-              console.log('Criando imagem:', file);
-              return {
-                filename: file.filename,
-                path: file.path
-              };
-            }) : []
-          }
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true
-            }
-          },
-          images: true
-        }
+      // Criar o chamado
+      const call = await CallRepository.create({
+        title,
+        description,
+        status: formattedStatus,
+        priority: formattedPriority,
+        userId: String(userId),
+        userName: user?.name,
+        userEmail: user?.email,
+        userPhone: user?.phone
       });
+
+      // Add images if present
+      const images: CallImage[] = [];
+      if (Array.isArray(req.files) && req.files.length > 0) {
+        for (const file of req.files as Express.Multer.File[]) {
+          console.log('Criando imagem:', file);
+          const image = await CallRepository.addImage({
+            callId: call.id,
+            filename: file.filename,
+            path: file.path
+          });
+          images.push(image);
+        }
+      }
 
       console.log('Chamado criado:', call);
 
-      res.status(201).json(call);
+      const callWithImages = { ...call, images };
+      const callWithUrls = await CallController.hydrateImages(callWithImages);
+      
+      res.status(201).json({
+        ...callWithUrls,
+        user: user ? {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone
+        } : null
+      });
     } catch (error) {
       console.error('Error creating call:', error);
       res.status(500).json({ 
@@ -219,7 +224,7 @@ export class CallController {
 
   static async updateCall(req: Request, res: Response) {
     try {
-      const callId = parseInt(req.params.id);
+      const callId = req.params.id;
       const { title, description, status, priority } = req.body;
       const userId = req.user?.id;
 
@@ -228,57 +233,66 @@ export class CallController {
       }
 
       // Buscar o chamado atual para obter o status anterior
-      const currentCall = await prisma.call.findUnique({
-        where: { id: callId }
-      });
+      const currentCall = await CallRepository.findById(callId);
 
       if (!currentCall) {
         return res.status(404).json({ message: 'Call not found' });
       }
 
-      // Atualizar o chamado com as novas imagens
-      const updatedCall = await prisma.call.update({
-        where: { id: callId },
-        data: {
-          title,
-          description,
-          status,
-          priority,
-          updatedAt: new Date(),
-          // Adicionar novas imagens se houver
-          images: {
-            create: Array.isArray(req.files) ? req.files.map((file: Express.Multer.File) => ({
-              filename: file.filename,
-              path: `/uploads/${file.filename}`
-            })) : []
-          }
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true
-            }
-          },
-          images: true
-        }
+      // Atualizar o chamado
+      const updatedCall = await CallRepository.update(callId, {
+        title,
+        description,
+        status,
+        priority
       });
+
+      if (!updatedCall) {
+        return res.status(404).json({ message: 'Call not found' });
+      }
+
+      // Adicionar novas imagens se houver
+      if (Array.isArray(req.files) && req.files.length > 0) {
+        for (const file of req.files as Express.Multer.File[]) {
+          await CallRepository.addImage({
+            callId: callId,
+            filename: file.filename,
+            path: file.path
+          });
+        }
+      }
 
       // Se o status foi alterado, registrar no histórico
       if (status && status !== currentCall.status) {
-        await prisma.callStatusHistory.create({
-          data: {
-            callId,
-            oldStatus: currentCall.status,
-            newStatus: status,
-            userId
-          }
+        const user = await UserRepository.findById(String(userId));
+        await CallStatusHistoryRepository.create({
+          callId: callId,
+          oldStatus: currentCall.status,
+          newStatus: status,
+          userId: String(userId),
+          userName: user?.name
         });
       }
 
-      res.json(updatedCall);
+      // Get updated call with images
+      const callWithImages = await CallRepository.findByIdWithImages(callId);
+      
+      // Get user info
+      let user = null;
+      if (updatedCall.userId) {
+        const userDoc = await UserRepository.findById(updatedCall.userId);
+        if (userDoc) {
+          user = {
+            id: userDoc.id,
+            name: userDoc.name,
+            email: userDoc.email,
+            phone: userDoc.phone
+          };
+        }
+      }
+
+      const updatedCallWithUrls = await CallController.hydrateImages(callWithImages!);
+      res.json({ ...updatedCallWithUrls, user });
     } catch (error) {
       console.error('Error updating call:', error);
       res.status(500).json({ message: 'Error updating call' });
@@ -287,28 +301,20 @@ export class CallController {
 
   static async deleteCall(req: Request, res: Response) {
     try {
-      const callId = parseInt(req.params.id);
-      if (isNaN(callId)) {
+      const callId = req.params.id;
+      if (!callId) {
         return res.status(400).json({ message: 'Invalid call ID' });
       }
 
-      // Delete all related records in a transaction
-      await prisma.$transaction(async (tx) => {
-        // Delete call status history
-        await tx.callStatusHistory.deleteMany({
-          where: { callId }
-        });
+      // Delete status history
+      await CallStatusHistoryRepository.deleteByCallId(callId);
 
-        // Delete call images
-        await tx.callImage.deleteMany({
-          where: { callId }
-        });
+      // Delete the call (this also deletes images)
+      const deleted = await CallRepository.delete(callId);
 
-        // Finally, delete the call
-        await tx.call.delete({
-          where: { id: callId }
-        });
-      });
+      if (!deleted) {
+        return res.status(404).json({ message: 'Call not found' });
+      }
 
       res.json({ message: 'Call deleted successfully' });
     } catch (error) {
@@ -324,36 +330,40 @@ export class CallController {
     try {
       const { dateStart, dateEnd, status } = req.query;
       
-      // Build where clause
-      const where: Prisma.CallWhereInput = {};
-      
+      // For Firestore, we need to query differently
+      // Get all calls and filter/group in memory
+      const result = await CallRepository.findMany({
+        page: 1,
+        limit: 10000, // Get all for statistics
+      });
+
+      let filteredCalls = result.data;
+
+      // Filter by date range
       if (dateStart && dateEnd) {
-        // Always use UTC for date filtering
         const startDate = new Date(`${dateStart}T00:00:00.000Z`);
         const endDate = new Date(`${dateEnd}T23:59:59.999Z`);
-
-        where.createdAt = {
-          gte: startDate,
-          lte: endDate,
-        };
+        
+        filteredCalls = filteredCalls.filter(call => {
+          const callDate = new Date(call.createdAt);
+          return callDate >= startDate && callDate <= endDate;
+        });
       }
       
+      // Filter by status
       if (status && status !== 'ALL') {
-        where.status = status as string;
+        filteredCalls = filteredCalls.filter(call => call.status === status);
       }
 
-      // Get calls grouped by status
-      const calls = await prisma.call.groupBy({
-        by: ['status'],
-        where,
-        _count: {
-          status: true,
-        },
+      // Group by status
+      const statusCounts: { [key: string]: number } = {};
+      filteredCalls.forEach(call => {
+        statusCounts[call.status] = (statusCounts[call.status] || 0) + 1;
       });
 
       // Format data for chart
-      const labels = calls.map(call => call.status);
-      const data = calls.map(call => call._count.status);
+      const labels = Object.keys(statusCounts);
+      const data = Object.values(statusCounts);
 
       res.json({
         labels,
@@ -374,20 +384,26 @@ export class CallController {
 
   static async deleteCallImage(req: Request, res: Response) {
     try {
-      const callId = parseInt(req.params.callId);
-      const imageId = parseInt(req.params.imageId);
+      const callId = req.params.callId;
+      const imageId = req.params.imageId;
 
-      if (isNaN(callId) || isNaN(imageId)) {
+      if (!callId || !imageId) {
         return res.status(400).json({ message: 'Invalid call ID or image ID' });
       }
 
-      // Delete the image
-      await prisma.callImage.delete({
-        where: {
-          id: imageId,
-          callId: callId
-        }
-      });
+      const image = await CallRepository.findImageById(imageId);
+
+      if (!image || image.callId !== callId) {
+        return res.status(404).json({ message: 'Image not found' });
+      }
+
+      await CallRepository.deleteImage(imageId);
+
+      try {
+        await storage.deleteFile(image.path);
+      } catch (deleteError) {
+        console.warn('Error deleting image file:', deleteError);
+      }
 
       res.json({ message: 'Image deleted successfully' });
     } catch (error) {

@@ -1,28 +1,80 @@
-version: "3.8"
-
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: txai-postgres
+  # =============================================================================
+  # Firebase Emulator Suite (Firestore, Auth)
+  # =============================================================================
+  firebase-emulator:
+    image: andreysenov/firebase-tools:latest
+    container_name: txai-firebase-emulator
     restart: unless-stopped
     ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-txai}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-txai123}
-      POSTGRES_DB: ${POSTGRES_DB:-txai_support}
+      - "4000:4000"   # Emulator UI
+      - "8082:8080"   # Firestore (avoiding conflict with frontend port 8080)
+      - "9099:9099"   # Auth
+      - "9199:9199"   # Storage (if needed)
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./firebase.json:/home/node/firebase.json:ro
+      - ./firestore.rules:/home/node/firestore.rules:ro
+      - ./firestore.indexes.json:/home/node/firestore.indexes.json:ro
+      - firebase_data:/home/node/.cache/firebase/emulators
+    command: firebase emulators:start --only firestore,auth --project local-dev
     networks:
       - txai-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U txai"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
+  # =============================================================================
+  # Redis - for WhatsApp sessions and caching
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: txai-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - txai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # =============================================================================
+  # GCS Emulator - https://github.com/fsouza/fake-gcs-server
+  # Bucket is auto-created via mounted directory structure
+  # =============================================================================
+  fake-gcs:
+    image: fsouza/fake-gcs-server:latest
+    container_name: txai-fake-gcs
+    restart: unless-stopped
+    ports:
+      - "4443:4443"
+    volumes:
+      # Mount with pre-created bucket directory - fake-gcs recognizes subdirs as buckets
+      - ./data/gcs:/data
+    command:
+      - "-scheme=http"
+      - "-port=4443"
+      - "-external-url=http://localhost:4443"
+      - "-public-host=localhost:4443"
+    networks:
+      - txai-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4443/storage/v1/b"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # =============================================================================
   # Backend Node.js API
+  # =============================================================================
   backend:
     build:
       context: ./backend
@@ -33,16 +85,38 @@ services:
       NODE_ENV: production
       PORT: 3001
       TZ: America/Sao_Paulo
-      DATABASE_URL: postgresql://${POSTGRES_USER:-txai}:${POSTGRES_PASSWORD:-txai123}@postgres:5432/${POSTGRES_DB:-txai_support}
+      # Firestore Emulator (port 8080 inside container)
+      FIRESTORE_EMULATOR_HOST: firebase-emulator:8080
+      FIREBASE_AUTH_EMULATOR_HOST: firebase-emulator:9099
+      GCP_PROJECT_ID: local-dev
+      # Redis
+      REDIS_URL: redis://redis:6379
+      # Storage (GCS with emulator)
+      STORAGE_DRIVER: gcs
+      STORAGE_EMULATOR_HOST: http://fake-gcs:4443
+      GCS_BUCKET: txai-uploads
+      GCS_PROJECT_ID: local-dev
+      GCS_PUBLIC_HOST: http://localhost:4443
+      GCS_UPLOADS_PREFIX: uploads
+      # WhatsApp
+      WHATSAPP_TOKEN_STORE: redis
+      WHATSAPP_SESSION_PATH: ./whatsapp-sessions
+      # JWT & CORS
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key}
-      # WPPConnect direct mode: no external server
+      CORS_ORIGINS: http://localhost:3000,http://localhost:8081
+      # Seeding (password from .env file - NOT committed)
+      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-}
     ports:
       - "3001:3001"
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/whatsapp-sessions:/app/whatsapp-sessions
     depends_on:
-      postgres:
+      firebase-emulator:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fake-gcs:
         condition: service_healthy
     networks:
       - txai-network
@@ -52,55 +126,33 @@ services:
       timeout: 10s
       retries: 3
 
-  # Frontend Next.js
+  # =============================================================================
+  # Frontend React App (nginx)
+  # =============================================================================
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: http://localhost:3001/api
     container_name: txai-frontend
     restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      REACT_APP_API_URL: /api
-    depends_on:
-      - backend
-    networks:
-      - txai-network
-
-  # WPPConnect removed; backend runs WPPConnect directly
-
-  # Nginx Reverse Proxy
-  nginx:
-    image: nginx:alpine
-    container_name: txai-nginx
-    restart: unless-stopped
     ports:
-      - "8080:80"
-      - "8443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - "8081:80"
     depends_on:
-      - frontend
       - backend
     networks:
       - txai-network
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://localhost/health",
-        ]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
       interval: 30s
       timeout: 10s
       retries: 3
 
 volumes:
-  postgres_data:
+  firebase_data:
+    driver: local
+  redis_data:
     driver: local
 
 networks:

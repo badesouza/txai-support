@@ -28,6 +28,10 @@ export const getImageUrl = (imagePath: string): string => {
     return '';
   }
 
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    return imagePath;
+  }
+
   try {
     // Usar a função auxiliar para obter a URL base correta
     const baseUrl = getApiBaseUrl();
@@ -42,8 +46,7 @@ export const getImageUrl = (imagePath: string): string => {
     if (typeof window !== 'undefined') {
       const protocol = window.location.protocol;
       const host = window.location.host;
-      // No ambiente Docker, as imagens são servidas através do Nginx proxy
-      // que roteia /api/ para o backend, então precisamos usar /api/ antes do caminho
+      // Se a API estiver exposta no mesmo host via proxy, prefixe /api
       return `${protocol}//${host}/api${imagePath}`;
     }
     

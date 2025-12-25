@@ -1,76 +1,63 @@
-import { PrismaClient } from '@prisma/client';
-import { execSync } from 'child_process';
-import path from 'path';
-import dotenv from 'dotenv';
+/**
+ * Jest Setup - Runs before each test file
+ */
 
-// Load test environment variables
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load test environment
 dotenv.config({ path: path.join(__dirname, 'test.env') });
 
-const prisma = new PrismaClient();
+// Set default test environment variables
+process.env.NODE_ENV = 'test';
+process.env.API_URL = process.env.API_URL || 'http://localhost:3001/api';
+process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8082';
+process.env.GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'local-dev';
 
-// Declaração de tipo global para testUtils
+// Extend Jest matchers
+expect.extend({
+  toBeValidUUID(received: string) {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const pass = uuidRegex.test(received);
+    return {
+      pass,
+      message: () => pass
+        ? `Expected ${received} not to be a valid UUID`
+        : `Expected ${received} to be a valid UUID`
+    };
+  },
+  
+  toBeISODate(received: string) {
+    const date = new Date(received);
+    const pass = !isNaN(date.getTime()) && received.includes('T');
+    return {
+      pass,
+      message: () => pass
+        ? `Expected ${received} not to be a valid ISO date`
+        : `Expected ${received} to be a valid ISO date`
+    };
+  }
+});
+
+// Declare custom matchers
 declare global {
-  var testUtils: {
-    prisma: PrismaClient;
-    createTestUser: (userData?: any) => Promise<any>;
-    createTestCall: (userId: number, callData?: any) => Promise<any>;
-  };
+  namespace jest {
+    interface Matchers<R> {
+      toBeValidUUID(): R;
+      toBeISODate(): R;
+    }
+  }
 }
 
-// Setup global test environment
-beforeAll(async () => {
-  // Set test database URL
-  process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://txai_user:txai_password@localhost:5433/txai_support_test';
-  
-  // Run migrations for test database
-  try {
-    execSync('npx prisma migrate deploy', {
-      env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
-      stdio: 'inherit'
-    });
-  } catch (error) {
-    console.warn('Migration failed, continuing with tests:', error);
-  }
-});
+// Global test timeout
+jest.setTimeout(30000);
 
-// Cleanup after each test
-afterEach(async () => {
-  // Clean up test data (preserve users to keep auth tokens valid across tests)
-  await prisma.userToken.deleteMany();
-  await prisma.callStatusHistory.deleteMany();
-  await prisma.call.deleteMany();
-});
+// Suppress console during tests (optional)
+// global.console = {
+//   ...console,
+//   log: jest.fn(),
+//   debug: jest.fn(),
+//   info: jest.fn()
+// };
 
-// Cleanup after all tests
-afterAll(async () => {
-  await prisma.$disconnect();
-});
 
-// Global test utilities
-global.testUtils = {
-  prisma,
-  createTestUser: async (userData = {}) => {
-    return await prisma.user.create({
-      data: {
-        name: 'Test User',
-        email: 'test@example.com',
-        password: 'hashedpassword',
-        phone: '123456789',
-        profile: 'USER',
-        ...userData
-      }
-    });
-  },
-  createTestCall: async (userId: number, callData = {}) => {
-    return await prisma.call.create({
-      data: {
-        userId,
-        title: 'Test Call',
-        description: 'Test Description',
-        status: 'OPEN',
-        priority: 'MEDIUM',
-        ...callData
-      }
-    });
-  }
-};

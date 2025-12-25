@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { UsersIcon, TicketIcon, ChartBarIcon } from '@heroicons/react/24/outline';
+import { UserOutlined, FileTextOutlined, BarChartOutlined } from '@ant-design/icons';
 
 export default function Sidebar() {
   const location = useLocation();
@@ -23,7 +23,7 @@ export default function Sidebar() {
                 : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
             }`}
           >
-            <TicketIcon className="mr-3 h-6 w-6" />
+            <FileTextOutlined className="mr-3" style={{ fontSize: '24px' }} />
             Chamados
           </Link>
 
@@ -35,7 +35,7 @@ export default function Sidebar() {
                 : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
             }`}
           >
-            <UsersIcon className="mr-3 h-6 w-6" />
+            <UserOutlined className="mr-3" style={{ fontSize: '24px' }} />
             Usuários
           </Link>
 
@@ -47,7 +47,7 @@ export default function Sidebar() {
                 : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
             }`}
           >
-            <ChartBarIcon className="mr-3 h-6 w-6" />
+            <BarChartOutlined className="mr-3" style={{ fontSize: '24px' }} />
             Relatórios
           </Link>
         </nav>

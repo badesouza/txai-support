@@ -1,241 +1,126 @@
-# 🚀 TXAI Support System
+# TXAI Support
 
-Sistema moderno de suporte a tickets com autenticação de usuários e upload de arquivos.
+Technical support system running on Google Cloud Platform (GCP) with Firestore.
 
-## ✨ Funcionalidades
+## Quick Start
 
-- **Gestão de Usuários**
-  - Login/Logout
-  - Recuperação de senha
-  - Gestão de perfil de usuário
-- **Gestão de Tickets de Suporte**
-  - Criar, ler, atualizar, deletar tickets
-  - Upload múltiplo de imagens por ticket
-  - Acompanhamento de status dos tickets
-- **Autenticação Segura**
-  - JWT tokens
-  - Middleware de autenticação
-- **Sistema de Arquivos**
-  - Upload seguro de imagens
-  - Validação de tipos de arquivo
+### Prerequisites
 
-## 🛠️ Stack Tecnológica
-
-- **Frontend**: React 18 + TypeScript + Tailwind CSS
-- **Backend**: Node.js + Express + TypeScript
-- **Banco de Dados**: MySQL + Prisma ORM
-- **Autenticação**: JWT
-- **Process Manager**: PM2
-- **Proxy Reverso**: Nginx
-- **Deploy**: Hostinger (IP: 31.97.170.240)
-
-## 📁 Estrutura do Projeto
-
-```
-txai-support/
-├── frontend/           # Aplicação React
-├── backend/           # API Node.js
-├── nginx/            # Configurações do Nginx
-├── deploy.sh         # Script de deploy automatizado
-├── backup.sh         # Script de backup
-└── README.md         # Este arquivo
-```
-
-## 🚀 Deploy no Hostinger
-
-### Pré-requisitos
-
-- Conta no Hostinger com plano que suporte Node.js
-- Acesso SSH ao servidor (IP: 31.97.170.240)
-- MySQL disponível
-
-### Passo a Passo Rápido
-
-1. **Preparar o projeto localmente:**
-
-   ```bash
-   # Build do frontend
-   cd frontend && npm run build
-
-   # Configurar arquivos .env.production
-   # Backend: backend/.env.production
-   # Frontend: frontend/.env.production
-   ```
-
-2. **Upload para o servidor:**
-
-   ```bash
-   # Via SSH (recomendado)
-   ssh u123456789@31.97.170.240
-   cd public_html
-   git clone <seu-repositorio> txai-support
-   cd txai-support
-   ```
-
-3. **Configurar o backend:**
-
-   ```bash
-   cd backend
-   npm install --production
-   npm run build
-
-   # Configurar PM2
-   npm install -g pm2
-   pm2 start ecosystem.config.js --env production
-   pm2 save
-   pm2 startup
-   ```
-
-4. **Configurar Nginx:**
-   ```bash
-   # Copiar configuração do Nginx
-   sudo cp nginx/nginx.conf /etc/nginx/sites-available/txai-support
-   sudo ln -s /etc/nginx/sites-available/txai-support /etc/nginx/sites-enabled/
-   sudo nginx -t
-   sudo systemctl restart nginx
-   ```
-
-### Para atualizações futuras:
+Create a `.env` file with your secrets:
 
 ```bash
-./deploy.sh
+cp .env.example .env
+# Edit .env and set:
+# - JWT_SECRET (generate with: openssl rand -hex 32)
+# - ADMIN_DEFAULT_PASSWORD (for initial admin user)
 ```
 
-## 🛠️ Desenvolvimento Local
-
-### Pré-requisitos
-
-- Node.js (v16 ou superior)
-- MySQL
-- npm ou yarn
-
-### Configuração
-
-1. **Clone o repositório:**
-
-   ```bash
-   git clone <seu-repositorio>
-   cd txai-support
-   ```
-
-2. **Configure o backend:**
-
-   ```bash
-   cd backend
-   npm install
-
-   # Crie o arquivo .env
-   cp env.example .env
-   # Edite as variáveis de ambiente
-
-   # Execute as migrações
-   npx prisma migrate dev
-   npx prisma generate
-
-   # Inicie o servidor
-   npm run dev
-   ```
-
-3. **Configure o frontend:**
-
-   ```bash
-   cd frontend
-   npm install
-
-   # Crie o arquivo .env.local
-   echo "REACT_APP_API_URL=http://localhost:3001/api" > .env.local
-
-   # Inicie o servidor
-   npm start
-   ```
-
-## 📝 Arquivos de Configuração
-
-### Backend (.env)
-
-```env
-NODE_ENV=development
-PORT=3001
-DATABASE_URL=mysql://txai:Acaraje123@localhost:3306/txai_support
-JWT_SECRET=your_jwt_secret
-CORS_ORIGIN=http://localhost:3000
-UPLOAD_PATH=./uploads
-```
-
-### Frontend (.env.local)
-
-```env
-REACT_APP_API_URL=http://localhost:3001/api
-REACT_APP_ENV=development
-```
-
-## 🔧 Scripts Úteis
-
-### Deploy
+### Start Locally (Docker Compose)
 
 ```bash
-./deploy.sh          # Deploy automatizado
+docker-compose up -d
 ```
 
-### Backup
+**Local URLs:**
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:8081 |
+| Backend API | http://localhost:3001/api |
+| Firebase Emulator UI | http://localhost:4000 |
+| GCS Emulator | http://localhost:4443 |
+
+**Default Admin:**
+- Email: `admin@txai.com`
+- Password: (from your `ADMIN_DEFAULT_PASSWORD` env var)
+
+### Run Tests
 
 ```bash
-./backup.sh          # Backup do banco e arquivos
+ADMIN_PASSWORD=your-password ./scripts/test-firestore.sh
 ```
 
-### PM2 (no servidor)
+## Architecture
+
+### Tech Stack
+
+| Component | Local | Cloud |
+|-----------|-------|-------|
+| **Database** | Firebase Emulator (Firestore) | Cloud Firestore |
+| **Storage** | fake-gcs-server | Cloud Storage |
+| **Redis** | Redis container | Redis Cloud |
+| **Backend** | Node.js container | Cloud Run |
+| **Frontend** | Nginx container | Firebase Hosting |
+| **Cost** | $0 | ~$5-10/month |
+
+### Project Structure
+
+```
+├── backend/                 # Node.js + Express + TypeScript
+│   ├── src/
+│   │   ├── controllers/     # API route handlers
+│   │   ├── repositories/    # Firestore data access
+│   │   ├── lib/firebase.ts  # Firebase Admin SDK setup
+│   │   └── storage/         # GCS storage abstraction
+├── frontend/                # React + TypeScript + Ant Design
+├── infra/terraform/         # Infrastructure as Code
+├── scripts/                 # Deploy and test scripts
+└── docs/                    # Documentation
+```
+
+## Cloud Deploy
+
+### First-Time Setup
 
 ```bash
-pm2 status           # Status da aplicação
-pm2 logs txai-backend # Ver logs
-pm2 restart txai-backend # Reiniciar
-pm2 monit            # Monitoramento
+# 1. Login to GCP and Firebase
+gcloud auth login && gcloud auth application-default login
+firebase login
+
+# 2. Set your project
+gcloud config set project YOUR_PROJECT_ID
+
+# 3. Run first-time deploy
+./scripts/gcp/first-time-deploy.sh
 ```
 
-## 📊 Monitoramento
+### Day-to-Day Deploys
 
-### Health Check
+```bash
+# Backend changes
+PROJECT_ID=your-project ./scripts/gcp/deploy-backend.sh
 
-- Endpoint: `GET /api/health`
-- Retorna status da aplicação, uptime e versão
+# Frontend changes  
+./scripts/gcp/deploy-frontend-firebase.sh
 
-### Logs
+# Infrastructure changes
+cd infra/terraform/environments/dev && terraform apply
+```
 
-- Backend: `pm2 logs txai-backend`
-- Nginx: `sudo tail -f /var/log/nginx/access.log`
+## Documentation
 
-## 🚨 Troubleshooting
+- **[Local vs Cloud Guide](docs/architecture/LOCAL_VS_CLOUD.md)** - Environment parity details
+- **[Storage & Redis Setup](docs/STORAGE_AND_REDIS_SETUP.md)** - Storage configuration
+- **[Deployment Guide](docs/infra/deployment-guide.md)** - Full deploy instructions
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and fixes
 
-### Problemas Comuns
+## Troubleshooting
 
-1. **Erro 502 Bad Gateway**
+### 401 Unauthorized after restart
 
-   - Verificar se o backend está rodando: `pm2 status`
-   - Verificar logs: `pm2 logs txai-backend`
+Browser has an old JWT token. Clear localStorage and login again:
+1. DevTools → Application → Local Storage → Clear
+2. Login again
 
-2. **Erro de CORS**
+### Database connection issues
 
-   - Verificar `CORS_ORIGIN` no .env
-   - Verificar configuração do Nginx
+```bash
+# Check Firebase emulator is running
+docker-compose logs firebase-emulator
 
-3. **Erro de banco de dados MySQL**
+# Reset everything
+docker-compose down -v && docker-compose up -d
+```
 
-   - Verificar se MySQL está rodando: `sudo systemctl status mysql`
-   - Executar migrações: `npx prisma migrate deploy`
-   - Verificar conexão: `mysql -u txai -p txai_support`
+## License
 
-4. **Arquivos não carregam**
-   - Verificar permissões da pasta uploads
-   - Verificar configuração do Nginx
-
-## 📞 Suporte
-
-Para problemas:
-
-1. Verifique os logs: `pm2 logs txai-backend`
-2. Teste a API: `curl http://localhost:3001/api/health`
-3. Verifique configuração: `sudo nginx -t`
-
-## 📄 Licença
-
-MIT License - veja o arquivo LICENSE para detalhes.
+[Add your license here]
