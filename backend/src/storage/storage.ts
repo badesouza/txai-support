@@ -1,8 +1,5 @@
 import path from 'path';
-import fs from 'fs/promises';
 import { Storage } from '@google-cloud/storage';
-
-export type StorageDriver = 'local' | 'gcs';
 
 export type SaveBufferOptions = {
   buffer: Buffer;
@@ -15,10 +12,6 @@ export type SaveResult = {
   relativePath: string;
 };
 
-const uploadsDir = process.env.UPLOAD_PATH
-  ? path.resolve(process.env.UPLOAD_PATH)
-  : path.resolve(process.cwd(), 'uploads');
-
 const signedUrlTtlSecondsRaw = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS ?? 900);
 const signedUrlTtlSeconds = Number.isFinite(signedUrlTtlSecondsRaw) ? signedUrlTtlSecondsRaw : 900;
 const gcsBucketName = process.env.GCS_BUCKET ?? '';
@@ -27,34 +20,6 @@ const gcsUploadsPrefix = (process.env.GCS_UPLOADS_PREFIX ?? 'uploads').replace(/
 // Emulator detection - @google-cloud/storage SDK natively supports STORAGE_EMULATOR_HOST
 const isEmulator = !!process.env.STORAGE_EMULATOR_HOST;
 const gcsPublicHost = process.env.GCS_PUBLIC_HOST || '';
-
-class LocalStorageProvider {
-  async saveBuffer(options: SaveBufferOptions): Promise<SaveResult> {
-    await fs.mkdir(uploadsDir, { recursive: true });
-    const absolutePath = path.join(uploadsDir, options.filename);
-    await fs.writeFile(absolutePath, options.buffer);
-    return {
-      absolutePath,
-      relativePath: `/uploads/${options.filename}`,
-    };
-  }
-
-  async deleteFile(relativePath: string): Promise<void> {
-    const filename = path.basename(relativePath);
-    const absolutePath = path.join(uploadsDir, filename);
-    try {
-      await fs.unlink(absolutePath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
-      }
-    }
-  }
-
-  async getFileUrl(relativePath: string): Promise<string> {
-    return relativePath;
-  }
-}
 
 class GcsStorageProvider {
   private storage: Storage;
@@ -153,24 +118,13 @@ class GcsStorageProvider {
   }
 }
 
-const configuredDriver = (process.env.STORAGE_DRIVER ?? 'local').toLowerCase();
-const driver: StorageDriver = configuredDriver === 'gcs' ? 'gcs' : 'local';
-
-function createProvider() {
-  if (driver === 'gcs') {
-    // Works with BOTH:
-    // - fake-gcs-server (when STORAGE_EMULATOR_HOST is set)
-    // - Real GCS (when STORAGE_EMULATOR_HOST is not set)
-    return new GcsStorageProvider();
-  }
-  return new LocalStorageProvider();
-}
-
-const provider = createProvider();
+// GCS is the only supported storage driver
+// Works with BOTH:
+// - fake-gcs-server (when STORAGE_EMULATOR_HOST is set) for local development
+// - Real GCS (when STORAGE_EMULATOR_HOST is not set) for production
+const provider = new GcsStorageProvider();
 
 export const storage = {
-  driver,
-  uploadsDir,
   saveBuffer: (options: SaveBufferOptions) => provider.saveBuffer(options),
   deleteFile: (relativePath: string) => provider.deleteFile(relativePath),
   getFileUrl: (relativePath: string) => provider.getFileUrl(relativePath),

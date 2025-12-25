@@ -1,7 +1,5 @@
 import { create, SocketState, Whatsapp } from '@wppconnect-team/wppconnect';
-import fs from 'fs';
 import { WhatsAppMessageRepository, UserRepository, CallRepository } from '../repositories';
-import * as waJs from '@wppconnect/wa-js';
 import { storage } from '../storage/storage';
 
 export interface WhatsAppMessage {
@@ -26,50 +24,14 @@ export class WPPConnectDirectService {
   private pendingCallLocations: Map<string, { userId: string; timestamp: number }> = new Map();
 
   /**
-   * Auto-detect Chrome/Chromium path based on OS.
-   * Returns null if no valid path is found so Puppeteer can use its bundled Chromium.
+   * Get Chrome/Chromium path from environment variable.
+   * In Docker, PUPPETEER_EXECUTABLE_PATH is set to /usr/bin/chromium-browser.
+   * Returns null if not set, letting Puppeteer use its bundled Chromium.
    */
   private getChromePath(): string | null {
-    const envCandidates = [
-      process.env.PUPPETEER_EXECUTABLE_PATH,
-      process.env.CHROME_PATH
-    ].filter(Boolean) as string[];
-
-    for (const candidate of envCandidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-      console.warn(`⚠️ Chrome path not found at ${candidate}; falling back to auto-detect.`);
-    }
-
-    const platform = process.platform;
-    const candidates: string[] = [];
-
-    switch (platform) {
-      case 'darwin': // macOS
-        candidates.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
-        candidates.push('/Applications/Chromium.app/Contents/MacOS/Chromium');
-        break;
-      case 'win32': // Windows
-        candidates.push('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe');
-        candidates.push('C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe');
-        break;
-      case 'linux': // Linux
-        candidates.push('/usr/bin/google-chrome');
-        candidates.push('/usr/bin/chromium-browser');
-        candidates.push('/usr/bin/chromium');
-        break;
-      default:
-        candidates.push('/usr/bin/chromium-browser');
-    }
-
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    return null;
+    // Trust the environment variable - no filesystem checks needed
+    // Docker sets: PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+    return process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH || null;
   }
 
   async initialize(): Promise<void> {
@@ -103,14 +65,15 @@ export class WPPConnectDirectService {
         useChrome: false,
         debug: false,
         logQR: true,
-        autoClose: false as any,
+        autoClose: 0, // Disable auto-close completely (0 = disabled)
         disableWelcome: true,
-        waitForLogin: false,
-        updatesLog: false,
+        waitForLogin: true, // Wait for login to complete - important for QR flow
+        updatesLog: true, // Enable for debugging
         catchQR: (base64Qrimg: string, asciiQR: string, attempts: number, urlCode: string) => {
           console.log('📸 ========== QR CODE CALLBACK TRIGGERED ==========');
           console.log('📸 Attempts:', attempts);
           console.log('📸 Has base64Qrimg:', !!base64Qrimg);
+          console.log('📸 urlCode (data-ref):', urlCode ? urlCode.substring(0, 50) + '...' : 'N/A');
           
           if (!base64Qrimg) {
             console.error('❌ QR Code is empty!');
@@ -122,7 +85,53 @@ export class WPPConnectDirectService {
           this.lastQrCodeTime = Date.now();
           console.log('✅ QR Code captured and stored successfully');
         },
+        statusFind: (statusSession: string, session: string) => {
+          console.log('📱 ========== STATUS FIND CALLBACK ==========');
+          console.log('📱 Status Session:', statusSession);
+          console.log('📱 Session name:', session);
+          
+          // Handle different status scenarios
+          switch (statusSession) {
+            case 'isLogged':
+              console.log('✅ User is already logged in');
+              this.isConnected = true;
+              this.qrCode = null;
+              break;
+            case 'notLogged':
+              console.log('📱 User not logged in - QR code will be generated');
+              this.isConnected = false;
+              break;
+            case 'qrReadSuccess':
+              console.log('✅ QR code scanned successfully');
+              break;
+            case 'qrReadFail':
+              console.log('❌ QR code scan failed');
+              break;
+            case 'browserClose':
+              console.log('🔴 Browser closed');
+              this.isConnected = false;
+              break;
+            case 'desconnectedMobile':
+              console.log('📵 Disconnected from mobile');
+              this.isConnected = false;
+              break;
+            case 'serverClose':
+              console.log('🔴 Server connection closed');
+              this.isConnected = false;
+              break;
+            case 'autocloseCalled':
+              console.log('⏱️ Auto-close was triggered');
+              break;
+            default:
+              console.log('ℹ️ Unknown status:', statusSession);
+          }
+        },
+        onLoadingScreen: (percent: number, message: string) => {
+          console.log(`⏳ Loading WhatsApp Web: ${percent}% - ${message}`);
+        },
         puppeteerOptions: {
+          // Note: userDataDir removed - using Redis for all session storage
+          // Browser will use temporary directory automatically
           ...(chromePath ? { executablePath: chromePath } : {}),
           args: [
             '--no-sandbox',
@@ -131,13 +140,13 @@ export class WPPConnectDirectService {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
+            '--single-process', // Important for Docker
             '--disable-gpu',
             '--disable-web-security',
             '--disable-features=VizDisplayCompositor',
             '--disable-breakpad',
             '--disable-extensions',
             '--no-default-browser-check',
-            '--start-maximized',
             '--disable-infobars',
             '--window-size=1920,1080',
             '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'

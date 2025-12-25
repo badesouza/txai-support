@@ -81,6 +81,8 @@ services:
       dockerfile: Dockerfile
     container_name: txai-backend
     restart: unless-stopped
+    # Increase shared memory for Chromium/Puppeteer (default 64MB is too small)
+    shm_size: '2gb'
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -98,9 +100,8 @@ services:
       GCS_PROJECT_ID: local-dev
       GCS_PUBLIC_HOST: http://localhost:4443
       GCS_UPLOADS_PREFIX: uploads
-      # WhatsApp
+      # WhatsApp (sessions stored in Redis, no filesystem)
       WHATSAPP_TOKEN_STORE: redis
-      WHATSAPP_SESSION_PATH: ./whatsapp-sessions
       # JWT & CORS
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key}
       CORS_ORIGINS: http://localhost:3000,http://localhost:8081
@@ -108,9 +109,9 @@ services:
       ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-}
     ports:
       - "3001:3001"
-    volumes:
-      - ./backend/uploads:/app/uploads
-      - ./backend/whatsapp-sessions:/app/whatsapp-sessions
+    # No volume mounts needed - all state is external:
+    # - Files → GCS (via STORAGE_DRIVER=gcs)
+    # - WhatsApp sessions → Redis (via WHATSAPP_TOKEN_STORE=redis)
     depends_on:
       firebase-emulator:
         condition: service_healthy
