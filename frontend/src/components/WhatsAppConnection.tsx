@@ -20,15 +20,6 @@ const WhatsAppConnection: React.FC = () => {
   // mountedRef para evitar setState após unmount
   const mountedRef = useRef(false);
 
-  // Debug: Log when qrCode state changes
-  useEffect(() => {
-    console.log('🔄 QR Code state changed:', qrCode ? 'HAS QR CODE' : 'NO QR CODE');
-    if (qrCode) {
-      console.log('🎯 Renderizando QR Code:', qrCode.substring(0, 50) + '...');
-      console.log('🎯 Condições de renderização:', { isConnected, qrCode: !!qrCode, condition: !isConnected && qrCode });
-    }
-  }, [qrCode, isConnected]);
-
   // Stop polling
   const stopPolling = useCallback(() => {
     console.log('🛑 Parando polling');
@@ -41,56 +32,36 @@ const WhatsAppConnection: React.FC = () => {
   // Request QR Code (usa inFlightQrRef)
   const requestQrCode = useCallback(async () => {
     if (inFlightQrRef.current) {
-      console.log('⏭️ requestQrCode: Requisição já em andamento, pulando...');
       return null;
     }
     inFlightQrRef.current = true;
     try {
-      console.log('📱 Solicitando QR Code ao backend...');
-      const response = await api.get('/whatsapp/qrcode');
-      const qrCodeData = response?.data?.qrCode ?? null;
+      const response = await api.get('/whatsapp/qrcode', { validateStatus: () => true });
+      if (response.status === 202) {
+        if (mountedRef.current) setQrCode(null);
+        return null;
+      }
+      if (response.status >= 400) {
+        throw new Error(`QR code request failed with status ${response.status}`);
+      }
 
-      console.log('📱 Resposta do QR Code:', qrCodeData ? `Recebido (${String(qrCodeData).substring(0, 50)}...)` : 'null');
-      console.log('📱 QR Code completo:', qrCodeData);
+      const qrCodeData = response?.data?.qrCode ?? null;
 
       if (!mountedRef.current) return null; // componente desmontado, abortar
 
-      if (qrCodeData) {
-        // Check if it's a placeholder or actual QR code
-        if (String(qrCodeData) === 'QR_CODE_GENERATING' || String(qrCodeData).includes('QR_CODE_') || String(qrCodeData).includes('PLACEHOLDER')) {
-          // It's a placeholder, keep loading screen active
-          console.log('📱 QR Code ainda sendo gerado, mantendo loading...');
-          setQrCode(null);
-          return null;
-        } else if (String(qrCodeData).startsWith('data:image')) {
-          // It's already a properly formatted data URL
-          console.log('📱 QR Code válido recebido!');
-          console.log('📱 Setando QR Code no estado...');
-          setQrCode(String(qrCodeData));
-          console.log('📱 QR Code setado com sucesso!');
-          return String(qrCodeData);
-        } else {
-          // Only format as base64 if it's actually base64 data, not placeholder text
-          if (String(qrCodeData).length > 50 && !String(qrCodeData).includes('QR_CODE_')) {
-            // It's a base64 string, format it properly
-            const formattedQr = `data:image/png;base64,${String(qrCodeData)}`;
-            console.log('📱 QR Code formatado como base64!');
-            setQrCode(formattedQr);
-            return formattedQr;
-          } else {
-            // It's a placeholder or short text, keep loading
-            console.log('📱 Dados insuficientes para QR Code, mantendo loading...');
-            setQrCode(null);
-            return null;
-          }
-        }
-      } else {
-        console.log('📱 Nenhum QR Code recebido, mantendo loading...');
+      if (!qrCodeData) {
         setQrCode(null);
         return null;
       }
+      if (String(qrCodeData).startsWith('data:image')) {
+        setQrCode(String(qrCodeData));
+        return String(qrCodeData);
+      }
+      // Back-compat: treat long strings as base64 payloads
+      const formattedQr = `data:image/png;base64,${String(qrCodeData)}`;
+      setQrCode(formattedQr);
+      return formattedQr;
     } catch (error) {
-      console.error('❌ Erro ao solicitar QR Code:', error);
       if (mountedRef.current) message.error('Erro ao gerar QR Code');
       setQrCode(null);
       return null;
@@ -102,41 +73,29 @@ const WhatsAppConnection: React.FC = () => {
   // Check status - retorna um objeto com resultado para uso pelos chamadores
   const checkStatus = useCallback(async (): Promise<{ connected: boolean; phone: string | null } | null> => {
     if (inFlightStatusRef.current) {
-      console.log('⏭️ checkStatus: Requisição já em andamento, pulando...');
       return null;
     }
     inFlightStatusRef.current = true;
     try {
-      console.log('🔍 Verificando status...');
       const response = await api.get('/whatsapp/status');
       const { connected = false, phone = null } = response?.data ?? {};
-
-      console.log(`📊 Status recebido do backend: ${connected ? '✅ Conectado' : '❌ Desconectado'}`, { phone });
 
       if (!mountedRef.current) return { connected, phone };
 
       if (connected) {
-        // Conectado: parar polling e mostrar sucesso
-        console.log('✅ WhatsApp conectado! Parando polling...');
         setIsConnected(true);
         setConnectedPhone(phone);
         setQrCode(null);
         stopPolling();
         message.success('WhatsApp conectado com sucesso!');
       } else {
-        // Desconectado: solicitar novo QR Code
-        console.log('❌ WhatsApp desconectado, solicitando QR Code...');
         setIsConnected(false);
         setConnectedPhone(null);
-        // Chama requestQrCode — agora sem ser bloqueado porque usamos flags separadas
-        console.log('🔄 Chamando requestQrCode...');
-        const qrResult = await requestQrCode();
-        console.log('🔄 Resultado do requestQrCode:', qrResult ? 'SUCCESS' : 'FAILED');
+        await requestQrCode();
       }
 
       return { connected, phone };
     } catch (error) {
-      console.error('❌ Erro ao verificar status:', error);
       if (mountedRef.current) message.error('Erro ao verificar status do WhatsApp');
       return null;
     } finally {
@@ -149,11 +108,7 @@ const WhatsAppConnection: React.FC = () => {
   const startPolling = useCallback(() => {
     stopPolling(); // Clear any existing interval
 
-    console.log('▶️ Iniciando polling (10s)');
     pollingRef.current = setInterval(() => {
-      console.log('⏰ Polling tick...');
-      console.log('⏰ Estado atual - isConnected:', isConnected, 'qrCode:', !!qrCode);
-      console.log('⏰ Executando checkStatus...');
       // Não aguardamos aqui; checkStatus já protege concorrência
       void checkStatus();
     }, 10000); // 10 segundos
@@ -208,21 +163,14 @@ const WhatsAppConnection: React.FC = () => {
     if (mountedRef.current) return; // Prevent double execution
     mountedRef.current = true;
 
-    console.log('🚀 WhatsAppConnection montado - COM POLLING AUTOMÁTICO (10s)');
-
     (async () => {
-      console.log('🚀 Iniciando verificação inicial...');
       const status = await checkStatus();
-      console.log('📊 Status inicial:', status);
       if (!status?.connected) {
-        console.log('🔄 Iniciando polling...');
         startPolling();
       }
-      console.log('✅ Verificação inicial completa - polling ajustado');
     })();
 
     return () => {
-      console.log('🔚 WhatsAppConnection desmontado');
       mountedRef.current = false;
       stopPolling();
     };
@@ -240,15 +188,6 @@ const WhatsAppConnection: React.FC = () => {
       </div>
     );
   }
-
-  // Debug log
-  console.log('🔍 Estado do componente:', { isConnected, qrCode: !!qrCode, checkingStatus });
-  console.log('🔍 Condições de renderização:', {
-    '!isConnected': !isConnected,
-    'qrCode': !!qrCode,
-    '!isConnected && qrCode': !isConnected && qrCode,
-    '!isConnected && !qrCode': !isConnected && !qrCode
-  });
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">

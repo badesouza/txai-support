@@ -431,11 +431,6 @@ export class WPPConnectDirectService {
         return;
       }
 
-      const timestamp = new Date().toLocaleString('pt-BR');
-      const updatedDescription = `${lastCall.description}\n[${timestamp}] ${messageBody}`;
-      
-      await CallRepository.update(lastCall.id, { description: updatedDescription });
-
       await WhatsAppMessageRepository.create({
         phone,
         message: messageBody,
@@ -515,15 +510,15 @@ export class WPPConnectDirectService {
     }
     
     if (!this.client && !this.isInitializing) {
-      this.initialize().catch(err => console.error('Error in lazy initialize:', err));
-      return 'QR_CODE_GENERATING';
+      this.initialize().catch((err) => console.error('Error in lazy initialize:', err));
+      return null;
     }
     
     if (this.client && !this.qrCode) {
-      return 'QR_CODE_GENERATING';
+      return null;
     }
     
-    return this.qrCode ?? 'QR_CODE_GENERATING';
+    return this.qrCode ?? null;
   }
 
   async disconnect(): Promise<void> {
