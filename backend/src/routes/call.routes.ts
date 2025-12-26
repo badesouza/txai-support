@@ -333,8 +333,8 @@ router.delete('/:id', CallController.deleteCall);
  *   delete:
  *     tags:
  *       - Calls
- *     summary: Delete a call image
- *     description: Delete a specific image attachment from a call
+ *     summary: Delete a call image (legacy)
+ *     description: Delete a specific image attachment from a call (legacy endpoint)
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -342,13 +342,13 @@ router.delete('/:id', CallController.deleteCall);
  *         name: callId
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Call ID
  *       - in: path
  *         name: imageId
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Image ID
  *     responses:
  *       200:
@@ -359,5 +359,38 @@ router.delete('/:id', CallController.deleteCall);
  *         description: Unauthorized
  */
 router.delete('/:callId/images/:imageId', CallController.deleteCallImage);
+
+/**
+ * @openapi
+ * /api/calls/{callId}/attachments/{attachmentId}:
+ *   delete:
+ *     tags:
+ *       - Calls
+ *     summary: Delete a call attachment
+ *     description: Delete a specific attachment from a call (from subcollection)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: callId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Call ID
+ *       - in: path
+ *         name: attachmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Attachment ID
+ *     responses:
+ *       200:
+ *         description: Attachment deleted successfully
+ *       404:
+ *         description: Call or attachment not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.delete('/:callId/attachments/:attachmentId', CallController.deleteCallAttachment);
 
 export default router;

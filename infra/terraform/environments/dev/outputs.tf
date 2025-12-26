@@ -28,6 +28,9 @@ output "uploads_bucket_uri" {
   description = "GCS URI for uploads bucket"
 }
 
+# =============================================================================
+# Backend Cloud Run
+# =============================================================================
 output "backend_cloud_run_url" {
   value       = google_cloud_run_v2_service.backend.uri
   description = "Cloud Run URL for backend API"
@@ -36,6 +39,16 @@ output "backend_cloud_run_url" {
 output "backend_service_name" {
   value       = google_cloud_run_v2_service.backend.name
   description = "Cloud Run service name for backend API"
+}
+
+# =============================================================================
+# WPPConnect-Server VM
+# =============================================================================
+# Note: wppconnect_vm_ip, wppconnect_vm_url, wppconnect_vm_ssh are in wppconnect-vm.tf
+
+output "wppconnect_base_url" {
+  value       = "http://${google_compute_address.wppconnect_vm.address}:21465"
+  description = "WPPConnect-Server base URL (auto-synced to backend)"
 }
 
 output "ci_deployer_email" {

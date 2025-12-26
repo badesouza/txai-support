@@ -1,16 +1,45 @@
 # Docker (Local Development)
 
-Docker Compose runs the complete development environment locally.
+Docker Compose runs the complete stack locally with zero cloud dependencies.
 
 ## Quick Start
 
 ```bash
-# Create secrets file
-cp .env.example .env
-# Edit .env and set JWT_SECRET and ADMIN_DEFAULT_PASSWORD
+# 1. Copy example files
+cp .env.example .env.local
+cp backend/.env.example backend/.env.local
 
-# Start everything
+# 2. Edit secrets in backend/.env.local:
+#    - JWT_SECRET
+#    - ADMIN_DEFAULT_PASSWORD
+#    - WPPCONNECT_SECRET_KEY
+#    - WPPCONNECT_PLATFORM (Apple Silicon/arm64: defaults to linux/amd64)
+
+# 3. Start everything
 docker-compose up -d
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      docker-compose                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  :8081         :3001         :21465        :4000                │
+│  Frontend      Backend       WPPConnect    Firebase UI          │
+│  (Nginx)  ───▶ (Node.js) ──▶ (Docker)                          │
+│                    │                                            │
+│              ┌─────┴─────┐                                      │
+│              ▼           ▼                                      │
+│         Firebase      Redis                                     │
+│         Emulator      :6379                                     │
+│              │                                                  │
+│              ▼                                                  │
+│         fake-gcs                                                │
+│          :4443                                                  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Services
@@ -19,37 +48,39 @@ docker-compose up -d
 |---------|------|-------------|
 | `frontend` | 8081 | React app (Nginx) |
 | `backend` | 3001 | Node.js API |
-| `firebase-emulator` | 4000, 8082 | Firestore + Auth emulator |
+| `wppconnect-server` | 21465 | WhatsApp API |
+| `firebase-emulator` | 4000 | Emulator UI |
 | `redis` | 6379 | Session storage |
-| `fake-gcs` | 4443 | GCS emulator |
+| `fake-gcs` | 4443 | Storage emulator |
 
 ## URLs
 
-- **Frontend**: http://localhost:8081
-- **Backend API**: http://localhost:3001/api
-- **Firebase Emulator UI**: http://localhost:4000
-- **GCS Emulator**: http://localhost:4443
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:8081 |
+| Backend API | http://localhost:3001/api |
+| WPPConnect | http://localhost:21465 |
+| Firebase UI | http://localhost:4000 |
+| GCS Emulator | http://localhost:4443 |
 
 ## Common Commands
 
 ```bash
-# Start all services
+# Start
 docker-compose up -d
 
 # View logs
 docker-compose logs -f backend
+docker-compose logs -f wppconnect-server
 
-# Restart backend
+# Restart single service
 docker-compose restart backend
 
-# Reset everything (deletes all data)
+# Reset everything (deletes all data!)
 docker-compose down -v && docker-compose up -d
 
-# Access Redis CLI
-docker-compose exec redis redis-cli
-
-# Check Firebase emulator
-curl http://localhost:8082
+# Shell into container
+docker-compose exec backend sh
 ```
 
 ## Data Persistence
@@ -58,27 +89,28 @@ curl http://localhost:8082
 |------|----------|
 | Firestore | Docker volume `firebase_data` |
 | Redis | Docker volume `redis_data` |
-| GCS uploads | `./data/gcs/txai-uploads/` |
-| WhatsApp sessions | `./backend/whatsapp-sessions/` |
+| GCS uploads | `./data/gcs/` |
+| WPPConnect | Docker volume `wppconnect_data` |
 
 ## Troubleshooting
 
 ### Backend won't start
-
-Check Firebase emulator is healthy:
 ```bash
-docker-compose ps
-docker-compose logs firebase-emulator
+docker-compose ps                    # Check status
+docker-compose logs firebase-emulator # Check emulator
 ```
 
-### Old data causing issues
+### WPPConnect QR code issues
+```bash
+docker-compose logs wppconnect-server # Check logs
+docker-compose restart wppconnect-server
+```
 
-Reset all volumes:
+### 401 errors after restart
+Clear browser localStorage → Login again
+
+### Reset all data
 ```bash
 docker-compose down -v
 docker-compose up -d
 ```
-
-### 401 errors after restart
-
-Clear browser localStorage and login again.

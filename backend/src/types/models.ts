@@ -52,8 +52,17 @@ export interface Call {
   userName?: string;
   userEmail?: string;
   userPhone?: string;
-  // Image URLs (denormalized)
+  // Image URLs (denormalized) - legacy, use attachments subcollection
   imageUrls?: string[];
+  
+  // Aggregated counts (denormalized for fast list queries)
+  messageCount?: number;
+  attachmentCount?: number;
+  
+  // Last activity summary
+  lastActivityAt?: Date;
+  lastMessagePreview?: string;  // First 100 chars of last message
+  
   createdAt: Date;
   updatedAt: Date;
 }
@@ -146,6 +155,10 @@ export interface WhatsAppMessage {
   message: string;
   messageType: string;
   isFromUser: boolean;
+  // Optional media metadata for image/video messages
+  mediaPath?: string;
+  mediaFilename?: string;
+  mediaMimetype?: string;
   createdAt: Date;
 }
 
@@ -156,6 +169,9 @@ export interface WhatsAppMessageCreateInput {
   message: string;
   messageType?: string;
   isFromUser?: boolean;
+  mediaPath?: string;
+  mediaFilename?: string;
+  mediaMimetype?: string;
 }
 
 // =============================================================================

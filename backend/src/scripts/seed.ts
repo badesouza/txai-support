@@ -26,13 +26,8 @@ async function seed() {
       return;
     }
 
-    // Create admin user - password from environment or fail
-    const adminPassword = process.env.ADMIN_DEFAULT_PASSWORD;
-    if (!adminPassword) {
-      console.log('⚠️ ADMIN_DEFAULT_PASSWORD not set, skipping admin creation');
-      console.log('   Set this environment variable to create the default admin user');
-      return;
-    }
+    // Create admin user - password from environment (default to admin123)
+    const adminPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'admin123';
     
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
     
@@ -54,7 +49,7 @@ async function seed() {
     console.log('');
     console.log('Default admin created:');
     console.log('  Email: admin@txai.com');
-    console.log('  Password: (from ADMIN_DEFAULT_PASSWORD env var)');
+    console.log('  Password: (from ADMIN_DEFAULT_PASSWORD env var, default admin123)');
 
   } catch (error) {
     console.error('❌ Seed failed:', error);

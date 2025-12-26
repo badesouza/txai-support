@@ -66,6 +66,15 @@ log_info "API URL: ${API_URL}"
 log_info "Preview: ${PREVIEW}"
 echo ""
 
+# Step 0: Deploy Firestore indexes (idempotent)
+log_info "Deploying Firestore indexes..."
+if [ -n "${FIREBASE_TOKEN}" ]; then
+  npx firebase deploy --only firestore:indexes --project "${FIREBASE_PROJECT_ID}" --token "${FIREBASE_TOKEN}"
+else
+  npx firebase deploy --only firestore:indexes --project "${FIREBASE_PROJECT_ID}"
+fi
+log_success "Firestore indexes deployed"
+
 # Step 1: Build frontend
 log_info "Building frontend with REACT_APP_API_URL=${API_URL}"
 cd "${REPO_ROOT}/frontend"
@@ -96,7 +105,7 @@ if [ "${PREVIEW}" = "true" ]; then
   CHANNEL_ID="preview-$(date +%s)"
 
   # Deploy to preview channel (expires in 7 days)
-  ${DEPLOY_CMD} hosting:channel:deploy "${CHANNEL_ID}" --expires 7d ${TOKEN_ARGS}
+  ${DEPLOY_CMD} hosting:channel:deploy "${CHANNEL_ID}" --expires 7d --project "${FIREBASE_PROJECT_ID}" ${TOKEN_ARGS}
   
   DEPLOY_STATUS=$?
   if [ ${DEPLOY_STATUS} -ne 0 ]; then
@@ -120,7 +129,7 @@ else
   log_info "Deploying to Firebase Hosting (production)..."
 
   # Deploy to production
-  ${DEPLOY_CMD} deploy --only hosting ${TOKEN_ARGS}
+  ${DEPLOY_CMD} deploy --only hosting --project "${FIREBASE_PROJECT_ID}" ${TOKEN_ARGS}
   
   DEPLOY_STATUS=$?
   if [ ${DEPLOY_STATUS} -ne 0 ]; then

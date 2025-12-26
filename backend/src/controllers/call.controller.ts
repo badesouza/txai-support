@@ -1,8 +1,13 @@
 // src/controllers/CallController.ts
 import { Request, Response } from "express";
 import { storage } from '../storage/storage';
-import { CallRepository, CallStatusHistoryRepository, UserRepository } from '../repositories';
-import { CallImage } from '../types/models';
+import { 
+  CallRepository, 
+  UserRepository,
+  CallMessageRepository,
+  CallAttachmentRepository,
+  CallHistoryRepository
+} from '../repositories';
 
 export class CallController {
   private static async hydrateImages<T extends { images?: Array<{ path: string }> }>(item: T): Promise<T> {
@@ -39,18 +44,8 @@ export class CallController {
         search
       });
 
-      // Debug logs
-      console.log('Calls with images:', result.data.map(call => ({
-        id: call.id,
-        title: call.title,
-        imagesCount: call.images?.length,
-        images: call.images
-      })));
-
-      // Hydrate images with URLs and add user info
-      const callsWithUrls = await Promise.all(result.data.map(async (call) => {
-        const hydratedCall = await CallController.hydrateImages(call);
-        
+      // Hydrate with user info and fetch first 3 attachments for thumbnails
+      const callsWithData = await Promise.all(result.data.map(async (call) => {
         // Get user info if available
         let user = null;
         if (call.userId) {
@@ -65,14 +60,24 @@ export class CallController {
           }
         }
 
+        // Fetch first 3 attachments for thumbnails in list view
+        const attachments = await CallAttachmentRepository.findByCallId(call.id, 3);
+        const hydratedAttachments = await Promise.all(
+          attachments.map(async (att) => ({
+            ...att,
+            url: await storage.getFileUrl(att.path),
+          }))
+        );
+
         return {
-          ...hydratedCall,
-          user
+          ...call,
+          user,
+          attachments: hydratedAttachments,
         };
       }));
 
       res.json({
-        calls: callsWithUrls,
+        calls: callsWithData,
         pagination: {
           total: result.total,
           page,
@@ -89,15 +94,27 @@ export class CallController {
   static async getCallById(req: Request, res: Response) {
     try {
       const callId = req.params.id;
+      const includeDetails = req.query.details !== 'false'; // Default: include all details
+      
+      console.log(`📦 [getCallById] Fetching call: ${callId}, includeDetails: ${includeDetails}`);
+      
       if (!callId) {
         return res.status(400).json({ message: 'Invalid call ID' });
       }
 
-      const call = await CallRepository.findByIdWithImages(callId);
+      // Use the new method that fetches all subcollection data in parallel
+      const call = includeDetails 
+        ? await CallRepository.findByIdWithDetails(callId)
+        : await CallRepository.findByIdWithImages(callId);
 
       if (!call) {
         return res.status(404).json({ message: 'Call not found' });
       }
+
+      console.log(`📦 [getCallById] Call found: ${call.title}`);
+      console.log(`   - Images count: ${call.images?.length || 0}`);
+      console.log(`   - Attachments count: ${'attachments' in call ? (call as any).attachments?.length || 0 : 'N/A'}`);
+      console.log(`   - Messages count: ${'messages' in call ? (call as any).messages?.length || 0 : 'N/A'}`);
 
       // Get user info
       let user = null;
@@ -113,8 +130,24 @@ export class CallController {
         }
       }
 
+      // Hydrate image URLs
       const callWithUrls = await CallController.hydrateImages(call);
-      res.json({ ...callWithUrls, user });
+      
+      // Also hydrate attachment URLs if present (for calls with details)
+      const result: Record<string, unknown> = { ...callWithUrls, user };
+      
+      if ('attachments' in call && Array.isArray(call.attachments)) {
+        console.log(`📎 [getCallById] Hydrating ${call.attachments.length} attachment URLs...`);
+        result.attachments = await Promise.all(
+          call.attachments.map(async (attachment: { path: string; [key: string]: unknown }) => {
+            const url = await storage.getFileUrl(attachment.path);
+            console.log(`   - ${attachment.path} -> ${url.substring(0, 80)}...`);
+            return { ...attachment, url };
+          })
+        );
+      }
+      
+      res.json(result);
     } catch (error) {
       console.error('Error fetching call:', error);
       res.status(500).json({ message: 'Error fetching call' });
@@ -185,27 +218,37 @@ export class CallController {
         userPhone: user?.phone
       });
 
-      // Add images if present
-      const images: CallImage[] = [];
+      // Add attachments if present (new subcollection only)
+      const attachments = [];
       if (Array.isArray(req.files) && req.files.length > 0) {
         for (const file of req.files as Express.Multer.File[]) {
-          console.log('Criando imagem:', file);
-          const image = await CallRepository.addImage({
-            callId: call.id,
+          console.log('Criando attachment:', file);
+          
+          const attachment = await CallAttachmentRepository.create(call.id, {
             filename: file.filename,
-            path: file.path
+            path: file.path,
+            mimetype: file.mimetype || 'image/jpeg',
+            size: file.size,
+            source: 'upload',
           });
-          images.push(image);
+          attachments.push(attachment);
+          await CallRepository.incrementAttachmentCount(call.id);
         }
       }
 
       console.log('Chamado criado:', call);
 
-      const callWithImages = { ...call, images };
-      const callWithUrls = await CallController.hydrateImages(callWithImages);
+      // Hydrate attachment URLs
+      const hydratedAttachments = await Promise.all(
+        attachments.map(async (att) => ({
+          ...att,
+          url: await storage.getFileUrl(att.path),
+        }))
+      );
       
       res.status(201).json({
-        ...callWithUrls,
+        ...call,
+        attachments: hydratedAttachments,
         user: user ? {
           id: user.id,
           name: user.name,
@@ -251,27 +294,31 @@ export class CallController {
         return res.status(404).json({ message: 'Call not found' });
       }
 
-      // Adicionar novas imagens se houver
+      // Add new attachments if present (new subcollection only)
       if (Array.isArray(req.files) && req.files.length > 0) {
         for (const file of req.files as Express.Multer.File[]) {
-          await CallRepository.addImage({
-            callId: callId,
+          await CallAttachmentRepository.create(callId, {
             filename: file.filename,
-            path: file.path
+            path: file.path,
+            mimetype: file.mimetype || 'image/jpeg',
+            size: file.size,
+            source: 'upload',
           });
+          await CallRepository.incrementAttachmentCount(callId);
         }
       }
 
-      // Se o status foi alterado, registrar no histórico
+      // If status changed, record in history (new subcollection only)
       if (status && status !== currentCall.status) {
         const user = await UserRepository.findById(String(userId));
-        await CallStatusHistoryRepository.create({
-          callId: callId,
-          oldStatus: currentCall.status,
-          newStatus: status,
-          userId: String(userId),
-          userName: user?.name
-        });
+        
+        await CallHistoryRepository.createStatusChange(
+          callId,
+          currentCall.status,
+          status,
+          String(userId),
+          user?.name
+        );
       }
 
       // Get updated call with images
@@ -306,10 +353,14 @@ export class CallController {
         return res.status(400).json({ message: 'Invalid call ID' });
       }
 
-      // Delete status history
-      await CallStatusHistoryRepository.deleteByCallId(callId);
+      // Delete subcollections (messages, attachments, history)
+      await Promise.all([
+        CallMessageRepository.deleteAllByCallId(callId),
+        CallAttachmentRepository.deleteAllByCallId(callId),
+        CallHistoryRepository.deleteAllByCallId(callId),
+      ]);
 
-      // Delete the call (this also deletes images)
+      // Delete the call document
       const deleted = await CallRepository.delete(callId);
 
       if (!deleted) {
@@ -410,6 +461,50 @@ export class CallController {
       console.error('Error deleting call image:', error);
       res.status(500).json({ 
         message: 'Error deleting call image',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  static async deleteCallAttachment(req: Request, res: Response) {
+    try {
+      const callId = req.params.callId;
+      const attachmentId = req.params.attachmentId;
+
+      if (!callId || !attachmentId) {
+        return res.status(400).json({ message: 'Invalid call ID or attachment ID' });
+      }
+
+      // Find the attachment first
+      const attachment = await CallAttachmentRepository.findById(callId, attachmentId);
+
+      if (!attachment) {
+        return res.status(404).json({ message: 'Attachment not found' });
+      }
+
+      // Delete from Firestore
+      const deleted = await CallAttachmentRepository.delete(callId, attachmentId);
+
+      if (!deleted) {
+        return res.status(404).json({ message: 'Attachment not found' });
+      }
+
+      // Delete file from GCS
+      try {
+        await storage.deleteFile(attachment.path);
+        console.log(`🗑️ Deleted file from GCS: ${attachment.path}`);
+      } catch (deleteError) {
+        console.warn('Error deleting attachment file from GCS:', deleteError);
+      }
+
+      // Decrement attachment count on call
+      await CallRepository.decrementAttachmentCount(callId);
+
+      res.json({ message: 'Attachment deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting call attachment:', error);
+      res.status(500).json({ 
+        message: 'Error deleting call attachment',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }

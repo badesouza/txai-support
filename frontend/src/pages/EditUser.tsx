@@ -85,14 +85,14 @@ export default function EditUser() {
         showConfirmButton: false
       });
       navigate('/users');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao atualizar usuário:', error);
+      const errorMessage = error.response?.data?.message || 'Erro ao atualizar usuário. Tente novamente.';
       Swal.fire({
         title: 'Erro!',
-        text: 'Erro ao atualizar usuário. Tente novamente.',
+        text: errorMessage,
         icon: 'error',
-        timer: 1500,
-        showConfirmButton: false
+        confirmButtonText: 'OK'
       });
     } finally {
       setLoading(false);

@@ -21,6 +21,9 @@ export class WhatsAppMessageRepository {
       message: data.message,
       messageType: data.messageType || 'text',
       isFromUser: data.isFromUser ?? true,
+      mediaPath: data.mediaPath,
+      mediaFilename: data.mediaFilename,
+      mediaMimetype: data.mediaMimetype,
       createdAt: now,
     };
 
@@ -122,6 +125,9 @@ export class WhatsAppMessageRepository {
       message: data.message,
       messageType: data.messageType,
       isFromUser: data.isFromUser,
+      mediaPath: data.mediaPath,
+      mediaFilename: data.mediaFilename,
+      mediaMimetype: data.mediaMimetype,
       createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
     };
   }

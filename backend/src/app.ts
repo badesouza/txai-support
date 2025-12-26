@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
-import { storage } from './storage/storage';
 
 const app = express();
 
@@ -32,10 +31,8 @@ app.use(
   })
 );
 
-app.use(express.json());
-
-// Uploads locais (dev/paridade). Em GCP isso será migrado para GCS.
-app.use('/uploads', express.static(storage.uploadsDir));
+// Allow larger payloads (WPPConnect webhook may include base64 media data)
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT ?? '25mb' }));
 
 // Rotas
 app.use('/api', routes);

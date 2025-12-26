@@ -1,0 +1,29 @@
+{
+  "secretKey": "THISISMYSECURETOKEN",
+  "host": "http://localhost",
+  "port": "21465",
+  "customUserDataDir": "./userDataDir/",
+  "startAllSession": true,
+  "maxListeners": 15,
+  "webhook": {
+    "url": null,
+    "autoDownload": false,
+    "readMessage": false,
+    "allUnreadOnStart": true
+  },
+  "archive": {
+    "enable": false,
+    "waitTime": 10,
+    "diasToArchive": 45
+  },
+  "log": {
+    "level": "error",
+    "logger": ["console"]
+  },
+  "createOptions": {
+    "autoClose": 120000,
+    "browserArgs": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+  }
+}
+
+

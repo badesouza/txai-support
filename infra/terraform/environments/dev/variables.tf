@@ -42,7 +42,9 @@ variable "backend_service_name" {
 variable "backend_container_port" {
   type        = number
   description = "Container port for backend API"
-  default     = 3001
+  # Cloud Run default port is 8080. The backend honors process.env.PORT, so
+  # using 8080 avoids failures when the initial placeholder image is deployed.
+  default = 8080
 }
 
 variable "backend_image" {
@@ -61,6 +63,54 @@ variable "backend_env_vars" {
   type        = map(string)
   description = "Environment variables injected into the backend service"
   default     = {}
+}
+
+# =============================================================================
+# WPPConnect-Server Cloud Run Configuration
+# =============================================================================
+
+variable "wppconnect_service_name" {
+  type        = string
+  description = "Cloud Run service name for WPPConnect-Server"
+  default     = "txai-wppconnect-server"
+}
+
+variable "wppconnect_container_port" {
+  type        = number
+  description = "Container port for WPPConnect-Server"
+  default     = 21465
+}
+
+variable "wppconnect_image" {
+  type        = string
+  description = "Container image for WPPConnect-Server"
+  default     = "wppconnect/server-cli:latest"
+}
+
+variable "wppconnect_allow_unauthenticated" {
+  type        = bool
+  description = "Allow unauthenticated invocations on the WPPConnect-Server service"
+  default     = true
+}
+
+variable "wppconnect_session" {
+  type        = string
+  description = "WPPConnect-Server session name"
+  default     = "txai-whatsapp"
+}
+
+variable "wppconnect_secret_key" {
+  type        = string
+  description = "WPPConnect-Server secret key used to generate tokens"
+  default     = "THISISMYSECURETOKEN"
+  sensitive   = true
+}
+
+variable "wppconnect_webhook_secret" {
+  type        = string
+  description = "Shared secret for backend webhook receiver (query token / header)"
+  default     = "txai-webhook-secret"
+  sensitive   = true
 }
 
 variable "service_accounts" {

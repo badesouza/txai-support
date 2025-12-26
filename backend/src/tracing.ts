@@ -6,7 +6,15 @@
 // =============================================================================
 
 // Load environment variables FIRST
+// Priority: .env.local > .env (dotenv loads the first file that exists)
 import dotenv from 'dotenv';
+import path from 'path';
+
+// Load root .env.local first (shared config like GCP_PROJECT_ID)
+dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
+// Then load backend-specific .env.local (overrides root values if duplicated)
+dotenv.config({ path: path.resolve(__dirname, '../.env.local') });
+// Fallback to .env if neither .env.local exists
 dotenv.config();
 
 import { NodeSDK } from '@opentelemetry/sdk-node';

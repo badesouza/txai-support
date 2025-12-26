@@ -197,7 +197,7 @@ The scripts deploy this infrastructure:
 ├─────────────────────────────────────┤
 │  Frontend (Firebase) → Backend (Run)│
 │                     ↓                │
-│                  Cloud SQL           │
+│                  Firestore           │
 │                  Uploads (GCS)       │
 │                  Artifact Registry   │
 └─────────────────────────────────────┘

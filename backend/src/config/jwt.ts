@@ -1,7 +1,11 @@
 import dotenv from 'dotenv';
+import path from 'path';
 import type { SignOptions } from 'jsonwebtoken';
 
-dotenv.config();
+// Load .env.local files (root shared + backend-specific)
+dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
+dotenv.config(); // fallback
 
 // Use a consistent fallback for development only.
 // In production, JWT_SECRET MUST be set via environment variable.
