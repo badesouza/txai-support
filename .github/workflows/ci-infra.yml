@@ -74,6 +74,19 @@ jobs:
         with:
           tofu_version: 1.8.6
 
+      - name: Enable Tofu plugin cache
+        run: |
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> $GITHUB_ENV
+
+      - name: Cache Tofu plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', matrix.environment)) }}
+          restore-keys: |
+            ${{ runner.os }}-tofu-
+
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
@@ -93,6 +106,7 @@ jobs:
           tofu plan \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
             -var="region=${{ vars.GCP_REGION || 'us-central1' }}" \
+            -var="redis_enabled=false" \
             -no-color \
             -out=tfplan 2>&1 | tee plan_output.txt
           echo "plan<<EOF" >> $GITHUB_OUTPUT
