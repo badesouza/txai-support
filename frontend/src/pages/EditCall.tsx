@@ -93,7 +93,7 @@ export default function EditCall() {
     setNewImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const removeExistingImage = async (imageId: number) => {
+  const removeExistingImage = async (imageId: number | string) => {
     try {
       // Show confirmation dialog
       const result = await Swal.fire({
@@ -125,6 +125,44 @@ export default function EditCall() {
       Swal.fire({
         title: 'Erro!',
         text: 'Erro ao remover imagem. Tente novamente.',
+        icon: 'error',
+        timer: 1500,
+        showConfirmButton: false
+      });
+    }
+  };
+
+  const removeAttachment = async (attachmentId: string) => {
+    try {
+      const result = await Swal.fire({
+        title: 'Tem certeza?',
+        text: "Esta ação não poderá ser revertida!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Sim, deletar!',
+        cancelButtonText: 'Cancelar'
+      });
+
+      if (!result.isConfirmed) {
+        return;
+      }
+
+      await api.delete(`/calls/${id}/attachments/${attachmentId}`);
+      setAttachments(prev => prev.filter(att => att.id !== attachmentId));
+      await Swal.fire({
+        title: 'Sucesso!',
+        text: 'Anexo removido com sucesso.',
+        icon: 'success',
+        timer: 1500,
+        showConfirmButton: false
+      });
+    } catch (error) {
+      console.error('Erro ao remover anexo:', error);
+      Swal.fire({
+        title: 'Erro!',
+        text: 'Erro ao remover anexo. Tente novamente.',
         icon: 'error',
         timer: 1500,
         showConfirmButton: false
@@ -296,7 +334,7 @@ export default function EditCall() {
                             }}
                           />
                         ) : isVideo ? (
-                          <div className="h-24 w-24 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                          <div className="h-24 w-24 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center overflow-hidden">
                             <video 
                               src={attachmentUrl} 
                               className="h-24 w-24 object-cover rounded-lg"
@@ -316,6 +354,16 @@ export default function EditCall() {
                         }`}>
                           {attachment.source === 'whatsapp' ? '📱' : '⬆️'}
                         </span>
+                        {/* Delete button */}
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(attachment.id)}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 focus:outline-none opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
                       </div>
                     );
                   })}

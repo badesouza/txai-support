@@ -425,40 +425,25 @@ export default function CallTable() {
       key: 'attachments',
       width: 120,
       render: (_, record) => {
-        // Combine legacy images and new attachments
-        const legacyImages = (record.images || []).map(img => ({
-          id: img.id,
-          path: img.path,
-          filename: img.filename,
-          url: img.path, // Will use getImageUrl
-          source: 'upload' as const,
-        }));
-        const newAttachments = (record.attachments || []).map(att => ({
-          id: att.id,
-          path: att.path,
-          filename: att.filename,
-          url: att.url || att.path,
-          source: att.source,
-          mimetype: att.mimetype,
-        }));
-        const allMedia = [...legacyImages, ...newAttachments];
-        const totalCount = allMedia.length + (record.attachmentCount || 0) - newAttachments.length;
+        const attachments = record.attachments || [];
+        const totalCount = record.attachmentCount || attachments.length;
         
         return (
           <div className="flex items-center">
-            {allMedia.length > 0 || (record.attachmentCount && record.attachmentCount > 0) ? (
+            {totalCount > 0 ? (
               <Button
                 type="link"
-                onClick={() => setSelectedImages(allMedia.map(m => ({ id: m.id, path: m.url || m.path, filename: m.filename })))}
+                onClick={() => setSelectedImages(attachments.map(att => ({ id: att.id, path: att.url || att.path, filename: att.filename })))}
                 className="p-0"
               >
                 <div className="flex -space-x-2">
-                  {allMedia.slice(0, 3).filter(m => m.path || m.url).map((media, index) => {
-                    const isVideo = media.mimetype?.startsWith('video/') || isLikelyVideo(media);
-                    const isWhatsApp = media.source === 'whatsapp';
+                  {attachments.slice(0, 3).map((att, index) => {
+                    const isVideo = att.mimetype?.startsWith('video/');
+                    const isWhatsApp = att.source === 'whatsapp';
+                    const url = att.url || att.path;
                     return isVideo ? (
                       <div
-                        key={media.id}
+                        key={att.id}
                         className={`w-8 h-8 rounded-full border-2 ${isWhatsApp ? 'border-green-400' : 'border-white'} bg-gray-200 flex items-center justify-center`}
                         style={{ zIndex: 3 - index }}
                         title="Vídeo"
@@ -467,8 +452,8 @@ export default function CallTable() {
                       </div>
                     ) : (
                       <img
-                        key={media.id}
-                        src={media.url?.startsWith('http') ? media.url : getImageUrl(media.path)}
+                        key={att.id}
+                        src={url}
                         alt={`Mídia ${index + 1}`}
                         className={`w-8 h-8 rounded-full border-2 ${isWhatsApp ? 'border-green-400' : 'border-white'} object-cover`}
                         style={{ zIndex: 3 - index }}
