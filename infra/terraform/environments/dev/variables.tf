@@ -44,7 +44,7 @@ variable "backend_container_port" {
   description = "Container port for backend API"
   # Cloud Run default port is 8080. The backend honors process.env.PORT, so
   # using 8080 avoids failures when the initial placeholder image is deployed.
-  default     = 8080
+  default = 8080
 }
 
 variable "backend_image" {
@@ -64,6 +64,10 @@ variable "backend_env_vars" {
   description = "Environment variables injected into the backend service"
   default     = {}
 }
+
+# =============================================================================
+# WPPConnect-Server Cloud Run Configuration
+# =============================================================================
 
 variable "wppconnect_service_name" {
   type        = string
@@ -107,24 +111,6 @@ variable "wppconnect_webhook_secret" {
   description = "Shared secret for backend webhook receiver (query token / header)"
   default     = "txai-webhook-secret"
   sensitive   = true
-}
-
-variable "wppconnect_vm_name" {
-  type        = string
-  description = "Compute Engine VM name for WPPConnect-Server"
-  default     = "txai-wppconnect-vm"
-}
-
-variable "wppconnect_vm_zone" {
-  type        = string
-  description = "Compute Engine zone for WPPConnect-Server VM"
-  default     = "us-central1-a"
-}
-
-variable "wppconnect_disk_size_gb" {
-  type        = number
-  description = "Persistent disk size (GB) for WPPConnect-Server userDataDir"
-  default     = 30
 }
 
 variable "service_accounts" {

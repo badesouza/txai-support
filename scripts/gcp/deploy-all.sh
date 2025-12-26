@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Deploy Complete Application to GCP
-# Requires: Bootstrap already completed, PROJECT_ID and TF_STATE_BUCKET set
+# Requires: Bootstrap already completed
+# Config loaded from .env.local files or environment variables
 #
 
 set -euo pipefail
@@ -18,7 +19,28 @@ log_success() { echo -e "${GREEN}==>${NC} $*"; }
 log_warn() { echo -e "${YELLOW}==>${NC} $*"; }
 log_error() { echo -e "${RED}==>${NC} $*"; }
 
-# Configuration
+# Get script and repo root directories
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# Load environment from root and infra .env.local files FIRST
+if [ -f "${REPO_ROOT}/.env.local" ]; then
+  log_info "Loading root environment from .env.local..."
+  set -a
+  # shellcheck source=../../.env.local
+  source "${REPO_ROOT}/.env.local"
+  set +a
+fi
+
+if [ -f "${REPO_ROOT}/infra/.env.local" ]; then
+  log_info "Loading infra environment from infra/.env.local..."
+  set -a
+  # shellcheck source=../../infra/.env.local
+  source "${REPO_ROOT}/infra/.env.local"
+  set +a
+fi
+
+# Configuration (env files loaded above, fallback to defaults)
 PROJECT_ID="${PROJECT_ID:-}"
 REGION="${REGION:-us-central1}"
 ENVIRONMENT_NAME="${ENVIRONMENT_NAME:-dev}"
@@ -29,12 +51,14 @@ TF_STATE_PREFIX="${TF_STATE_PREFIX:-txai-support/${ENVIRONMENT_NAME}}"
 if [ -z "${PROJECT_ID}" ]; then
   log_error "PROJECT_ID is required"
   echo "Usage: PROJECT_ID=your-project TF_STATE_BUCKET=your-tfstate-bucket $0"
+  echo "Or create .env.local and infra/.env.local with the required values"
   exit 1
 fi
 
 if [ -z "${TF_STATE_BUCKET}" ]; then
   log_error "TF_STATE_BUCKET is required (created during bootstrap)"
   echo "Usage: PROJECT_ID=your-project TF_STATE_BUCKET=your-tfstate-bucket $0"
+  echo "Or create infra/.env.local with TF_STATE_BUCKET"
   echo ""
   echo "If you haven't run bootstrap yet, run: ./scripts/gcp/bootstrap.sh"
   exit 1
@@ -91,8 +115,6 @@ fi
 log_success "State bucket verified"
 
 # Verify .dockerignore exists
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BACKEND_DOCKERIGNORE="${REPO_ROOT}/backend/.dockerignore"
 
 if [ ! -f "${BACKEND_DOCKERIGNORE}" ]; then
@@ -156,13 +178,17 @@ BACKEND_URL=$(tofu output -raw backend_cloud_run_url)
 BACKEND_SERVICE_NAME=$(tofu output -raw backend_service_name)
 SERVICE_ACCOUNT=$(tofu output -raw runtime_api_email)
 ARTIFACT_REPO_URL=$(tofu output -raw artifact_repo_url)
+WPPCONNECT_URL=$(tofu output -raw wppconnect_cloud_run_url)
+WPPCONNECT_SERVICE_NAME=$(tofu output -raw wppconnect_service_name)
 
 # Extract artifact registry details
 AR_REPO=$(echo "${ARTIFACT_REPO_URL}" | awk -F'/' '{print $3}')
 
 log_success "Infrastructure deployed successfully"
-echo "  Backend Service:  ${BACKEND_SERVICE_NAME}"
-echo "  Backend URL:      ${BACKEND_URL}"
+echo "  Backend Service:     ${BACKEND_SERVICE_NAME}"
+echo "  Backend URL:         ${BACKEND_URL}"
+echo "  WPPConnect Service:  ${WPPCONNECT_SERVICE_NAME}"
+echo "  WPPConnect URL:      ${WPPCONNECT_URL}"
 echo ""
 
 # Derive Firebase/CORS inputs for backend with clear precedence:
@@ -201,6 +227,7 @@ export AR_REPO="${AR_REPO}"
 export PROJECT_ID="${PROJECT_ID}"
 export CORS_ORIGINS="${CORS_ORIGINS}"
 export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID}"
+export WPPCONNECT_BASE_URL="${WPPCONNECT_URL}"
 
 "${SCRIPT_DIR}/deploy-backend.sh"
 
@@ -246,12 +273,13 @@ echo "Application URLs"
 echo "========================================"
 echo ""
 if [ -n "${FIREBASE_URL}" ]; then
-  echo "Frontend: ${FIREBASE_URL}"
+  echo "Frontend:   ${FIREBASE_URL}"
 else
-  echo "Frontend: (missing .firebaserc, run setup-firebase.sh)"
+  echo "Frontend:   (missing .firebaserc, run setup-firebase.sh)"
 fi
-echo "Backend:  ${BACKEND_URL}"
-echo "Health:   ${BACKEND_URL}/api/health"
+echo "Backend:    ${BACKEND_URL}"
+echo "Health:     ${BACKEND_URL}/api/health"
+echo "WPPConnect: ${WPPCONNECT_URL}"
 echo ""
 echo "========================================"
 echo "Next Steps"
@@ -267,4 +295,5 @@ echo "   curl ${BACKEND_URL}/api/health"
 echo ""
 echo "3. Monitor logs:"
 echo "   gcloud run services logs read ${BACKEND_SERVICE_NAME} --region ${REGION}"
+echo "   gcloud run services logs read ${WPPCONNECT_SERVICE_NAME} --region ${REGION}"
 echo ""

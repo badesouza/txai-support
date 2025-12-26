@@ -10,6 +10,7 @@ SERVICE_NAME="${SERVICE_NAME:-txai-backend}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
 FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
+WPPCONNECT_BASE_URL="${WPPCONNECT_BASE_URL:-}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-300}"
 MAX_INSTANCES="${MAX_INSTANCES:-}"
 
@@ -61,6 +62,13 @@ if [ -n "${SERVICE_URL}" ]; then
   CMD+=(--update-env-vars="^;^PUBLIC_BASE_URL=${SERVICE_URL}")
 else
   echo "==> Not updating PUBLIC_BASE_URL (failed to read service URL)."
+fi
+
+if [ -n "${WPPCONNECT_BASE_URL}" ]; then
+  echo "==> Updating WPPCONNECT_BASE_URL: ${WPPCONNECT_BASE_URL}"
+  CMD+=(--update-env-vars="^;^WPPCONNECT_BASE_URL=${WPPCONNECT_BASE_URL}")
+else
+  echo "==> Not updating WPPCONNECT_BASE_URL (WPPCONNECT_BASE_URL not provided)."
 fi
 
 "${CMD[@]}"

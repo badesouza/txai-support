@@ -1,127 +1,126 @@
 # Troubleshooting Guide
 
-Common issues and their solutions.
+## Quick Diagnosis
 
-## Table of Contents
-- [401 Unauthorized](#401-unauthorized)
-- [CORS Errors](#cors-errors)
-- [Database Issues](#database-issues)
-- [Storage Issues](#storage-issues)
-- [Deploy Issues](#deploy-issues)
+```
+Problem?
+   │
+   ├── 401 Unauthorized ────────▶ See "Authentication Issues"
+   │
+   ├── CORS Errors ─────────────▶ See "CORS Errors"
+   │
+   ├── WhatsApp not connecting ─▶ See "WPPConnect Issues"
+   │
+   ├── Database errors ─────────▶ See "Database Issues"
+   │
+   └── Deploy failures ─────────▶ See "Deploy Issues"
+```
 
 ---
 
-## 401 Unauthorized
+## Authentication Issues (401)
 
-### Symptom
-Frontend receives 401 errors on login or protected endpoints.
+### Admin User Not Created
 
-### Common Causes
+**Symptom:** Login fails, logs show "Usuário não encontrado"
 
-#### 1. Admin User Not Created
-
-**Symptom:** Login fails immediately with 401, backend logs show "Usuário não encontrado"
-
-**Cause:** `ADMIN_DEFAULT_PASSWORD` environment variable not set in Cloud Run, so the seed script skips creating the admin user.
-
-**Solution:**
+**Fix:**
 ```bash
-# Set the admin password
-gcloud run services update txai-backend \
-  --region us-central1 \
+gcloud run services update txai-backend --region us-central1 \
   --update-env-vars ADMIN_DEFAULT_PASSWORD="your-secure-password"
-
-# Verify in logs that admin was created
-gcloud run logs read txai-backend --limit=50 | grep -A 5 "Admin user created"
 ```
 
-Expected log output:
-```
-✅ Admin user created: {
-  id: '...',
-  email: 'admin@txai.com',
-  name: 'Admin'
-}
-🎉 Seed completed successfully!
-```
+### JWT Token Mismatch
 
-#### 2. JWT Token Mismatch
+**Symptom:** 401 on protected endpoints after login success
 
-**Symptom:** 401 errors on protected endpoints (`/api/users`, `/api/calls`) after successful login.
-
-**Cause:** Old JWT token signed with different `JWT_SECRET`.
-
-**Solution:**
-
-**Local:** Clear browser localStorage and login again:
-1. DevTools → Application → Local Storage
+**Fix (Local):**
+1. Browser DevTools → Application → Local Storage
 2. Delete `token` entry
 3. Login again
 
-**Cloud:** Ensure `JWT_SECRET` is consistent:
+**Fix (Cloud):**
 ```bash
-# Generate new secret
-NEW_SECRET=$(openssl rand -base64 32)
-
-# Update Cloud Run
-gcloud run services update txai-backend \
-  --region us-central1 \
-  --update-env-vars JWT_SECRET=$NEW_SECRET
+gcloud run services update txai-backend --region us-central1 \
+  --update-env-vars JWT_SECRET="$(openssl rand -base64 32)"
 ```
-
-> Note: All users must login again after changing the secret.
 
 ---
 
 ## CORS Errors
 
-### Symptom
-Browser console shows: `Access to XMLHttpRequest blocked by CORS policy`
+**Symptom:** Browser console: `blocked by CORS policy`
 
-### Cause
-Backend not accepting requests from frontend origin.
-
-### Solution
-
+**Fix:**
 ```bash
-# Check current CORS config
-gcloud run services describe txai-backend \
-  --region us-central1 \
-  --format="value(spec.template.spec.containers[0].env)"
-
-# Update CORS origins
-gcloud run services update txai-backend \
+gcloud run services update txai-backend --region us-central1 \
   --update-env-vars "CORS_ORIGINS=https://your-app.web.app,https://your-app.firebaseapp.com"
+```
+
+---
+
+## WPPConnect Issues
+
+### QR Code Not Showing
+
+**Local:**
+```bash
+docker-compose logs wppconnect-server
+docker-compose restart wppconnect-server
+```
+
+**Cloud (VM):**
+```bash
+# Check VM logs
+gcloud compute ssh wppconnect-server --zone=us-central1-a \
+  --command="sudo docker logs --tail 50 wppconnect-server"
+
+# Restart container
+gcloud compute ssh wppconnect-server --zone=us-central1-a \
+  --command="sudo docker restart wppconnect-server"
+```
+
+### Session Lost / Disconnected
+
+**Symptom:** "Parando polling" or "CLOSED" status
+
+**Cloud:** Sessions persist on VM's SSD. If lost:
+1. Check VM is running: `gcloud compute instances list`
+2. Check container: `gcloud compute ssh ... --command="sudo docker ps"`
+3. Re-scan QR code from frontend
+
+### Backend Can't Reach WPPConnect
+
+**Symptom:** Backend returns WPPConnect errors
+
+**Check URL is synced:**
+```bash
+gcloud run services describe txai-backend --region us-central1 \
+  --format="value(spec.template.spec.containers[0].env)" | grep WPPCONNECT
+
+# Should show: WPPCONNECT_BASE_URL=http://<VM-IP>:21465
+```
+
+**Re-sync via Terraform:**
+```bash
+cd infra/terraform/environments/dev
+tofu apply  # Triggers null_resource to update backend
 ```
 
 ---
 
 ## Database Issues
 
-### Symptom
-Backend fails to start or returns 500 errors on data operations.
-
-### Local Solution
-
+### Local
 ```bash
-# Check Firebase emulator is running
-docker-compose ps
-docker-compose logs firebase-emulator
-
-# Reset everything
-docker-compose down -v
-docker-compose up -d
+docker-compose ps                     # Check emulator status
+docker-compose logs firebase-emulator # View logs
+docker-compose down -v && docker-compose up -d  # Reset
 ```
 
-### Cloud Solution
-
-Check Firestore is enabled:
+### Cloud
 ```bash
 gcloud firestore databases list --project=YOUR_PROJECT
-```
-
-Check Cloud Run logs:
-```bash
 gcloud run logs read txai-backend --limit=50
 ```
 
@@ -129,62 +128,54 @@ gcloud run logs read txai-backend --limit=50
 
 ## Storage Issues
 
-### Symptom
-File uploads fail or images don't display.
-
-### Local Solution
-
+### Local
 ```bash
-# Check GCS emulator is running
-curl http://localhost:4443/storage/v1/b
-
-# Restart emulator
-docker-compose restart fake-gcs
+curl http://localhost:4443/storage/v1/b  # Test emulator
+docker-compose restart fake-gcs          # Restart
 ```
 
-### Cloud Solution
-
-Verify bucket exists and backend has access:
+### Cloud
 ```bash
-gsutil ls gs://your-bucket-name
+gsutil ls gs://your-bucket-name          # Check bucket
 ```
 
 ---
 
 ## Deploy Issues
 
-### Symptom
-Deploy fails or containers crash on startup.
-
-### Solution
-
-**Check build logs:**
+### Build Failed
 ```bash
 gcloud builds list --limit 1
 gcloud builds log [BUILD_ID]
 ```
 
-**Check runtime logs:**
+### Container Crashing
 ```bash
 gcloud run logs read txai-backend --limit=50
 ```
 
-**Common causes:**
+### Common Causes
 1. Missing environment variables
-2. Firebase/GCP credentials not configured
-3. Network issues connecting to Redis Cloud
+2. Wrong WPPCONNECT_BASE_URL
+3. Redis connection issues
 
 ### Frontend Blank Screen
+1. Check `firebase.json` has rewrites: `{ "source": "**", "destination": "/index.html" }`
+2. Verify API URL in build: `grep -r "txai-backend" frontend/build/static/js/`
 
-Ensure SPA routing in `firebase.json`:
-```json
-{
-  "rewrites": [{ "source": "**", "destination": "/index.html" }]
-}
-```
+---
 
-Verify API URL is baked into the build:
+## Logs Cheatsheet
+
 ```bash
-export REACT_APP_API_URL="https://your-backend.run.app/api"
-npm run build
+# Backend (Cloud Run)
+gcloud run logs read txai-backend --limit=50
+
+# WPPConnect (VM)
+gcloud compute ssh wppconnect-server --zone=us-central1-a \
+  --command="sudo docker logs -f wppconnect-server"
+
+# Local (Docker)
+docker-compose logs -f backend
+docker-compose logs -f wppconnect-server
 ```

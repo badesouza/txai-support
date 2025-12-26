@@ -28,6 +28,9 @@ output "uploads_bucket_uri" {
   description = "GCS URI for uploads bucket"
 }
 
+# =============================================================================
+# Backend Cloud Run
+# =============================================================================
 output "backend_cloud_run_url" {
   value       = google_cloud_run_v2_service.backend.uri
   description = "Cloud Run URL for backend API"
@@ -38,14 +41,14 @@ output "backend_service_name" {
   description = "Cloud Run service name for backend API"
 }
 
-output "wppconnect_static_ip" {
-  value       = google_compute_address.wppconnect_ip.address
-  description = "Static external IP for WPPConnect-Server VM"
-}
+# =============================================================================
+# WPPConnect-Server VM
+# =============================================================================
+# Note: wppconnect_vm_ip, wppconnect_vm_url, wppconnect_vm_ssh are in wppconnect-vm.tf
 
 output "wppconnect_base_url" {
-  value       = "http://${google_compute_address.wppconnect_ip.address}:${var.wppconnect_container_port}"
-  description = "Base URL for WPPConnect-Server VM"
+  value       = "http://${google_compute_address.wppconnect_vm.address}:21465"
+  description = "WPPConnect-Server base URL (auto-synced to backend)"
 }
 
 output "ci_deployer_email" {
@@ -82,9 +85,4 @@ output "redis_database_id" {
 output "redis_secret_id" {
   value       = var.redis_enabled ? google_secret_manager_secret.redis_url[0].secret_id : ""
   description = "Secret Manager secret ID for Redis URL"
-}
-
-output "wppconnect_config_secret_id" {
-  value       = google_secret_manager_secret.wppconnect_config.secret_id
-  description = "Secret Manager secret ID for WPPConnect-Server config"
 }

@@ -1,58 +1,101 @@
-locals {
-  wppconnect_vm_tag = "wppconnect-server"
+# =============================================================================
+# WPPConnect-Server GCE VM
+# =============================================================================
+# VM-based deployment for WPPConnect-Server with:
+# - Persistent disk for userDataDir (WhatsApp session data)
+# - 1 vCPU, 2GB RAM (e2-small)
+# - Docker-based deployment using wppconnect/server-cli
+# =============================================================================
+
+# VM Configuration Variables
+variable "wppconnect_vm_name" {
+  type        = string
+  description = "Name for the WPPConnect VM instance"
+  default     = "wppconnect-server"
 }
 
-resource "google_compute_address" "wppconnect_ip" {
-  name   = "${var.environment_name}-wppconnect-ip"
-  region = var.region
-
-  depends_on = [google_project_service.apis]
+variable "wppconnect_vm_zone" {
+  type        = string
+  description = "GCP zone for the VM"
+  default     = "us-central1-a"
 }
 
+variable "wppconnect_vm_machine_type" {
+  type        = string
+  description = "Machine type for the VM (1 vCPU, 2GB RAM)"
+  default     = "e2-small"
+}
+
+variable "wppconnect_vm_disk_size_gb" {
+  type        = number
+  description = "Size of the persistent data disk in GB"
+  default     = 20
+}
+
+# =============================================================================
+# Static IP for the VM (PINNED - persists across VM recreations)
+# =============================================================================
+# This is a reserved static external IP address. It remains allocated even if
+# the VM is destroyed and recreated. The backend is automatically updated
+# via null_resource.sync_wppconnect_url_to_backend whenever this IP changes.
+resource "google_compute_address" "wppconnect_vm" {
+  name        = "${var.wppconnect_vm_name}-ip"
+  region      = var.region
+  description = "Static IP for WPPConnect-Server VM - do not delete"
+}
+
+# =============================================================================
+# Persistent Disk for userDataDir (WhatsApp session data)
+# =============================================================================
 resource "google_compute_disk" "wppconnect_data" {
-  name = "${var.environment_name}-wppconnect-data"
-  type = "pd-balanced"
-  zone = var.wppconnect_vm_zone
-  size = var.wppconnect_disk_size_gb
+  name  = "${var.wppconnect_vm_name}-data"
+  type  = "pd-ssd"
+  zone  = var.wppconnect_vm_zone
+  size  = var.wppconnect_vm_disk_size_gb
 
-  depends_on = [google_project_service.apis]
+  labels = {
+    environment = var.environment_name
+    purpose     = "wppconnect-userdata"
+  }
 }
 
-resource "google_compute_firewall" "wppconnect_ingress" {
-  name    = "${var.environment_name}-allow-wppconnect"
+# =============================================================================
+# Firewall Rule for WPPConnect API (port 21465)
+# =============================================================================
+resource "google_compute_firewall" "wppconnect_api" {
+  name    = "${var.wppconnect_vm_name}-allow-api"
   network = "default"
-
-  target_tags = [local.wppconnect_vm_tag]
-  direction   = "INGRESS"
 
   allow {
     protocol = "tcp"
-    ports    = [tostring(var.wppconnect_container_port)]
+    ports    = ["21465", "22"]
   }
 
-  # NOTE: Exposing this port publicly is a deliberate choice in this plan.
-  # The WPPConnect server still requires token-based auth via secretKey.
   source_ranges = ["0.0.0.0/0"]
-
-  depends_on = [google_project_service.apis]
+  target_tags   = ["wppconnect-server"]
 }
 
-resource "google_compute_instance" "wppconnect_vm" {
+# =============================================================================
+# WPPConnect VM Instance
+# =============================================================================
+resource "google_compute_instance" "wppconnect" {
   name         = var.wppconnect_vm_name
+  machine_type = var.wppconnect_vm_machine_type
   zone         = var.wppconnect_vm_zone
-  machine_type = "e2-small" # 2 vCPU / 2Gi
-  tags         = [local.wppconnect_vm_tag]
+
+  tags = ["wppconnect-server", "http-server", "https-server"]
 
   boot_disk {
     initialize_params {
-      image = "projects/cos-cloud/global/images/family/cos-stable"
-      size  = 20
+      image = "debian-cloud/debian-12"
+      size  = 30
       type  = "pd-balanced"
     }
   }
 
+  # Attach persistent data disk
   attached_disk {
-    source      = google_compute_disk.wppconnect_data.id
+    source      = google_compute_disk.wppconnect_data.self_link
     device_name = "wppconnect-data"
     mode        = "READ_WRITE"
   }
@@ -60,98 +103,54 @@ resource "google_compute_instance" "wppconnect_vm" {
   network_interface {
     network = "default"
     access_config {
-      nat_ip = google_compute_address.wppconnect_ip.address
+      nat_ip = google_compute_address.wppconnect_vm.address
     }
   }
 
   service_account {
     email  = google_service_account.runtime_whatsapp.email
-    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+    scopes = ["cloud-platform"]
   }
 
   metadata = {
-    # Run wppconnect/server-cli as a "container VM" on COS.
-    gce-container-declaration = <<-EOT
-spec:
-  containers:
-    - name: wppconnect-server
-      image: ${var.wppconnect_image}
-      args:
-        - --config
-        - /config/config.json
-      env:
-        - name: PORT
-          value: "${var.wppconnect_container_port}"
-        - name: TZ
-          value: "America/Sao_Paulo"
-      volumeMounts:
-        - name: wppconnect-config
-          mountPath: /config
-          readOnly: true
-        - name: wppconnect-userdata
-          mountPath: /usr/src/wpp-server/userDataDir
-  volumes:
-    - name: wppconnect-config
-      hostPath:
-        path: /var/lib/wppconnect
-        type: DirectoryOrCreate
-    - name: wppconnect-userdata
-      hostPath:
-        path: /mnt/disks/wppconnect-data/userDataDir
-        type: DirectoryOrCreate
-  restartPolicy: Always
-EOT
+    # Pass configuration to the startup script
+    wppconnect-secret-key    = var.wppconnect_secret_key
+    wppconnect-session       = var.wppconnect_session
+    wppconnect-webhook-url   = "${google_cloud_run_v2_service.backend.uri}/api/whatsapp/webhook"
+    wppconnect-webhook-token = var.wppconnect_webhook_secret
   }
 
-  metadata_startup_script = <<-EOT
-#!/bin/bash
-set -euo pipefail
+  metadata_startup_script = file("${path.module}/scripts/wppconnect-vm-startup.sh")
 
-MOUNT_DIR="/mnt/disks/wppconnect-data"
-DEVICE="/dev/disk/by-id/google-wppconnect-data"
+  labels = {
+    environment = var.environment_name
+    app         = "wppconnect"
+  }
 
-mkdir -p "$MOUNT_DIR"
+  # Allow stopping for updates
+  allow_stopping_for_update = true
 
-if ! blkid "$DEVICE" >/dev/null 2>&1; then
-  mkfs.ext4 -F "$DEVICE"
-fi
-
-if ! mountpoint -q "$MOUNT_DIR"; then
-  mount -o discard,defaults "$DEVICE" "$MOUNT_DIR"
-fi
-
-if ! grep -q "$DEVICE" /etc/fstab 2>/dev/null; then
-  echo "$DEVICE $MOUNT_DIR ext4 discard,defaults,nofail 0 2" >> /etc/fstab
-fi
-
-mkdir -p "$MOUNT_DIR/userDataDir"
-
-mkdir -p /var/lib/wppconnect
-touch /var/lib/wppconnect/config.json
-chmod 600 /var/lib/wppconnect/config.json
-
-TOKEN_JSON="$(curl -sf -H 'Metadata-Flavor: Google' 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token')"
-ACCESS_TOKEN="$(echo "$TOKEN_JSON" | sed -n 's/.*\"access_token\":\"\\([^\"]*\\)\".*/\\1/p')"
-
-if [ -z "$ACCESS_TOKEN" ]; then
-  echo "Failed to obtain access token from metadata server" >&2
-  exit 1
-fi
-
-SECRET_URL="https://secretmanager.googleapis.com/v1/projects/${var.project_id}/secrets/${google_secret_manager_secret.wppconnect_config.secret_id}/versions/latest:access"
-SECRET_JSON="$(curl -sf -H "Authorization: Bearer $ACCESS_TOKEN" "$SECRET_URL")"
-SECRET_B64="$(echo "$SECRET_JSON" | sed -n 's/.*\"data\":\"\\([^\"]*\\)\".*/\\1/p')"
-
-if [ -z "$SECRET_B64" ]; then
-  echo "Failed to read secret payload from Secret Manager" >&2
-  exit 1
-fi
-
-echo "$SECRET_B64" | base64 -d > /var/lib/wppconnect/config.json
-chmod 600 /var/lib/wppconnect/config.json
-EOT
-
-  depends_on = [google_project_service.apis]
+  depends_on = [
+    google_project_service.apis,
+    google_compute_disk.wppconnect_data,
+    google_compute_firewall.wppconnect_api,
+  ]
 }
 
+# =============================================================================
+# Outputs
+# =============================================================================
+output "wppconnect_vm_ip" {
+  value       = google_compute_address.wppconnect_vm.address
+  description = "External IP of the WPPConnect VM"
+}
 
+output "wppconnect_vm_url" {
+  value       = "http://${google_compute_address.wppconnect_vm.address}:21465"
+  description = "WPPConnect API URL"
+}
+
+output "wppconnect_vm_ssh" {
+  value       = "gcloud compute ssh ${var.wppconnect_vm_name} --zone=${var.wppconnect_vm_zone}"
+  description = "SSH command to connect to the VM"
+}

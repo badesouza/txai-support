@@ -30,8 +30,8 @@ resource "rediscloud_essentials_database" "sessions" {
   count            = var.redis_enabled ? 1 : 0
   subscription_id  = rediscloud_essentials_subscription.main[0].id
   name             = var.redis_database_name
-  data_persistence = "none"  # Sessions can be recreated
-  replication      = false   # Free tier doesn't support replication
+  data_persistence = "none" # Sessions can be recreated
+  replication      = false  # Free tier doesn't support replication
 
   # Note: Essentials free tier does not support custom alerts
   # Alerts are configured at the subscription level via Redis Cloud console

@@ -1,84 +1,90 @@
 # Documentation
 
-## Overview
+## Architecture Overview
 
-TXAI Support runs with **local ↔ cloud parity** - same code, different infrastructure:
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              TXAI Support                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   LOCAL (Docker Compose)              CLOUD (GCP)                           │
+│   ════════════════════                ═════════════                         │
+│                                                                             │
+│   ┌─────────┐  ┌─────────┐           ┌─────────┐  ┌─────────┐              │
+│   │Frontend │  │ Backend │           │Firebase │  │Cloud Run│              │
+│   │ :8081   │─▶│ :3001   │           │Hosting  │─▶│ Backend │              │
+│   └─────────┘  └────┬────┘           └─────────┘  └────┬────┘              │
+│                     │                                   │                   │
+│                     ▼                                   ▼                   │
+│   ┌─────────────────────────┐       ┌─────────────────────────┐            │
+│   │     WPPConnect-Server   │       │    WPPConnect VM        │            │
+│   │     Docker :21465       │       │    GCE (Static IP)      │            │
+│   └─────────────────────────┘       └─────────────────────────┘            │
+│                                                                             │
+│   Storage: fake-gcs :4443            Storage: Cloud Storage                 │
+│   Database: Firebase Emulator        Database: Cloud Firestore              │
+│   Redis: Docker :6379                Redis: Redis Cloud (TLS)               │
+│                                                                             │
+│   Cost: $0                           Cost: ~$10-15/month                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-| Component | Local | Cloud |
-|-----------|-------|-------|
-| Database | Firebase Emulator | Cloud Firestore |
-| Storage | fake-gcs-server | Cloud Storage |
-| Redis | Docker container | Redis Cloud |
-| Backend | Docker container | Cloud Run |
-| Frontend | Nginx container | Firebase Hosting |
+## Component Comparison
 
-## Main Guides
+| Component | Local (Docker) | Cloud (GCP) |
+|-----------|----------------|-------------|
+| **Frontend** | Nginx :8081 | Firebase Hosting |
+| **Backend** | Node.js :3001 | Cloud Run |
+| **WhatsApp** | WPPConnect Docker :21465 | **WPPConnect GCE VM** |
+| **Database** | Firebase Emulator | Cloud Firestore |
+| **Storage** | fake-gcs-server | Cloud Storage |
+| **Redis** | Redis container | Redis Cloud |
 
-### Architecture
-- **[Local vs Cloud](architecture/LOCAL_VS_CLOUD.md)** - Environment differences
-- **[Storage & Redis](STORAGE_AND_REDIS_SETUP.md)** - Storage and session setup
+## Quick Links
 
-### Infrastructure
-- **[Deployment Guide](infra/deployment-guide.md)** - Full GCP deploy
-- **[Terraform](infra/terraform.md)** - Infrastructure as Code
+| Guide | Description |
+|-------|-------------|
+| [Local vs Cloud](architecture/LOCAL_VS_CLOUD.md) | Environment differences |
+| [Docker Setup](docker.md) | Local development |
+| [Deployment Guide](infra/deployment-guide.md) | Full GCP deploy |
+| [Terraform](infra/terraform.md) | Infrastructure as Code |
+| [Troubleshooting](troubleshooting.md) | Common issues |
 
-### Development
-- **[Docker](docker.md)** - Local setup
-- **[Troubleshooting](troubleshooting.md)** - Common issues
+## Environment Files
+
+```
+txai-support/
+├── .env.local              # Shared (PROJECT_ID, REGION)
+├── backend/.env.local      # Backend secrets (JWT, WPPConnect)
+├── frontend/.env.local     # Frontend config (API URL)
+└── infra/.env.local        # Terraform secrets (Redis Cloud API keys)
+```
 
 ## Service URLs
 
-### Local (Docker Compose)
-
+### Local
 | Service | URL |
 |---------|-----|
 | Frontend | http://localhost:8081 |
 | Backend API | http://localhost:3001/api |
-| Firebase Emulator UI | http://localhost:4000 |
-| GCS Emulator | http://localhost:4443 |
-| Redis | localhost:6379 |
+| WPPConnect | http://localhost:21465 |
+| Firebase UI | http://localhost:4000 |
 
-### Production (GCP)
-
+### Cloud
 | Service | URL |
 |---------|-----|
 | Frontend | https://`<project>`.web.app |
 | Backend | https://`<service>`.run.app |
-| Database | Cloud Firestore |
-| Redis | Redis Cloud (TLS) |
-| Storage | Cloud Storage |
+| WPPConnect | http://`<VM-IP>`:21465 |
 
-## Environment Variables
+## Deploy Commands
 
-### Backend
+```bash
+# First-time setup
+./scripts/gcp/first-time-deploy.sh
 
-| Variable | Description | Local | Cloud |
-|----------|-------------|-------|-------|
-| `FIRESTORE_EMULATOR_HOST` | Firestore emulator | `firebase-emulator:8080` | (not set) |
-| `FIREBASE_AUTH_EMULATOR_HOST` | Auth emulator | `firebase-emulator:9099` | (not set) |
-| `GCP_PROJECT_ID` | GCP project | `local-dev` | Your project ID |
-| `REDIS_URL` | Redis connection | `redis://redis:6379` | `rediss://...` (TLS) |
-| `STORAGE_EMULATOR_HOST` | GCS emulator | `http://fake-gcs:4443` | (not set) |
-| `GCS_BUCKET` | Upload bucket | `txai-uploads` | `project-uploads` |
-| `JWT_SECRET` | JWT signing key | `.env` file | Secret Manager |
-| `ADMIN_DEFAULT_PASSWORD` | Initial admin password | `.env` file | Secret Manager |
-| `WHATSAPP_ENABLED` | Enable WhatsApp integration | `true` | `true/false` |
-| `WHATSAPP_DRIVER` | WhatsApp driver | `server` | `server/direct` |
-| `WPPCONNECT_SECRET_KEY` | WPPConnect-Server shared secret | `.env` file | Secret Manager |
-| `WPPCONNECT_WEBHOOK_SECRET` | Webhook token for backend endpoint | `.env` file | Secret Manager |
-| `GCS_PUBLIC_HOST` | Public host for fake-gcs URLs | `http://localhost:4443` | (not set) |
-
-### Frontend
-
-| Variable | Description |
-|----------|-------------|
-| `REACT_APP_API_URL` | Backend API URL |
-
-## Deploy Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `./scripts/gcp/first-time-deploy.sh` | Initial setup |
-| `./scripts/gcp/deploy-backend.sh` | Deploy backend |
-| `./scripts/gcp/deploy-frontend-firebase.sh` | Deploy frontend |
-| `./scripts/test-firestore.sh` | Run API tests |
+# Day-to-day
+./scripts/gcp/deploy-all.sh        # Full deploy
+./scripts/gcp/deploy-backend.sh    # Backend only
+./scripts/gcp/deploy-frontend-firebase.sh  # Frontend only
+```

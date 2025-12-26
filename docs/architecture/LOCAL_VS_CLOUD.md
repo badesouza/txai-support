@@ -1,167 +1,146 @@
 # Local vs Cloud Architecture
 
-TXAI Support is designed with **environment parity** - the same code runs locally and in the cloud through abstraction layers that auto-detect the environment.
+Same code, different infrastructure through environment auto-detection.
 
-## Quick Comparison
+## Component Comparison
 
-| Component | Local (Docker) | Cloud (GCP) | Parity Method |
-|-----------|----------------|-------------|---------------|
-| **Database** | Firebase Emulator | Cloud Firestore | Firebase Admin SDK |
-| **Storage** | fake-gcs-server | Cloud Storage | `STORAGE_EMULATOR_HOST` env var |
-| **Redis** | Redis container | Redis Cloud | `REDIS_URL` (redis:// vs rediss://) |
-| **Backend** | Node.js container | Cloud Run | Same Docker image |
-| **Frontend** | Nginx container | Firebase Hosting | Same build artifacts |
-| **Cost** | $0 | ~$5-10/month | — |
+| Component | Local (Docker) | Cloud (GCP) | Detection |
+|-----------|----------------|-------------|-----------|
+| **Frontend** | Nginx :8081 | Firebase Hosting | Build config |
+| **Backend** | Node.js :3001 | Cloud Run | Same image |
+| **WhatsApp** | WPPConnect Docker | **GCE VM** ⚡ | `WPPCONNECT_BASE_URL` |
+| **Database** | Firebase Emulator | Cloud Firestore | `FIRESTORE_EMULATOR_HOST` |
+| **Storage** | fake-gcs-server | Cloud Storage | `STORAGE_EMULATOR_HOST` |
+| **Redis** | Redis container | Redis Cloud | `REDIS_URL` scheme |
+| **Cost** | $0 | ~$10-15/month | — |
 
-## How It Works
-
-### Firestore Detection
-
-```typescript
-// backend/src/lib/firebase.ts
-const isEmulator = !!process.env.FIRESTORE_EMULATOR_HOST;
-const projectId = process.env.GCP_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || 'local-dev';
-
-if (isEmulator) {
-  // Local: Firebase Admin SDK auto-detects emulator via env var
-  admin.initializeApp({ projectId });
-} else {
-  // Cloud: Uses production Firestore (ADC or FIREBASE_CREDENTIALS_JSON)
-  admin.initializeApp({ projectId });
-}
-```
-
-### Storage Detection
-
-```typescript
-// backend/src/storage/storage.ts
-const isEmulator = !!process.env.STORAGE_EMULATOR_HOST;
-// Local: Routes to fake-gcs-server
-// Cloud: Routes to storage.googleapis.com
-```
-
-### Redis Detection
-
-```bash
-# Local (no TLS)
-REDIS_URL=redis://redis:6379
-
-# Cloud (TLS enabled - note the double 's')
-REDIS_URL=rediss://:PASSWORD@host:port
-```
-
-## Environment Variables
-
-### Local Development (docker-compose.yml)
-
-```yaml
-FIRESTORE_EMULATOR_HOST: firebase-emulator:8080
-STORAGE_EMULATOR_HOST: http://fake-gcs:4443
-REDIS_URL: redis://redis:6379
-GCS_BUCKET: txai-uploads
-```
-
-### Cloud Production
-
-```yaml
-# No FIRESTORE_EMULATOR_HOST = real Firestore
-# No STORAGE_EMULATOR_HOST = real GCS
-REDIS_URL: rediss://:PASSWORD@redis-cloud-host:16379
-GCS_BUCKET: project-id-uploads
-GCP_PROJECT_ID: your-project-id
-```
+> ⚡ **Key difference**: WPPConnect runs in Docker locally but on a **dedicated VM** in cloud for Chrome/Puppeteer stability.
 
 ## Architecture Diagrams
 
 ### Local Development
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                Local (Docker Compose)                          │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│  :8081           :3001            :4443           :4000        │
-│  Frontend        Backend          fake-gcs        Firebase     │
-│  (Nginx)  ────▶  (Node.js) ────▶  (GCS Emu)      Emulator UI  │
-│                     │                                          │
-│              ┌──────┴──────┐                                   │
-│              ▼             ▼                                   │
-│         Firebase       Redis                                   │
-│         Emulator       :6379                                   │
-│         (Firestore)                                            │
-│                                                                │
-│  All containers share txai-network                             │
-│  Data persists in Docker volumes                               │
-│  No internet required                                          │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                    LOCAL (Docker Compose)                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Browser                                                            │
+│     │                                                               │
+│     ▼                                                               │
+│  ┌──────────┐      ┌──────────┐      ┌──────────────────┐          │
+│  │ Frontend │ ───▶ │ Backend  │ ───▶ │ WPPConnect-Server│          │
+│  │  :8081   │      │  :3001   │      │     :21465       │          │
+│  │ (Nginx)  │      │ (Node.js)│      │    (Docker)      │          │
+│  └──────────┘      └────┬─────┘      └────────┬─────────┘          │
+│                         │                      │                    │
+│                    ┌────┴────┐                 │                    │
+│                    ▼         ▼                 ▼                    │
+│              ┌──────────┐ ┌──────┐      ┌───────────┐              │
+│              │ Firebase │ │Redis │      │  Chrome   │              │
+│              │ Emulator │ │:6379 │      │ (headless)│              │
+│              │  :4000   │ └──────┘      └───────────┘              │
+│              └──────────┘                                           │
+│                    │                                                │
+│                    ▼                                                │
+│              ┌──────────┐                                           │
+│              │ fake-gcs │                                           │
+│              │  :4443   │                                           │
+│              └──────────┘                                           │
+│                                                                     │
+│  ✅ Everything in Docker    ✅ No internet required    ✅ $0 cost   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Cloud Production
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                Cloud (GCP + Redis Cloud)                       │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│  Firebase         Cloud Run       Cloud Storage                │
-│  Hosting   ────▶  Backend  ────▶  (GCS Bucket)                │
-│  (CDN)            (Serverless)                                 │
-│                      │                                         │
-│              ┌───────┴───────┐                                 │
-│              ▼               ▼                                 │
-│         Cloud             Redis                                │
-│         Firestore         Cloud                                │
-│         (NoSQL)           (TLS)                                │
-│                                                                │
-│  Auto-scaling, global CDN, managed services                    │
-│  Automatic backups and 11-nines durability                     │
-└────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                       CLOUD (GCP)                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Browser                                                            │
+│     │                                                               │
+│     ▼                                                               │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────┐  │
+│  │   Firebase   │───▶│  Cloud Run   │───▶│   WPPConnect VM      │  │
+│  │   Hosting    │    │   Backend    │    │   (GCE e2-small)     │  │
+│  │   (CDN)      │    │ (Serverless) │    │   Static IP: x.x.x.x │  │
+│  └──────────────┘    └──────┬───────┘    └──────────┬───────────┘  │
+│                             │                       │               │
+│                        ┌────┴────┐                  │               │
+│                        ▼         ▼                  ▼               │
+│                  ┌──────────┐ ┌────────┐    ┌───────────────┐      │
+│                  │ Cloud    │ │ Redis  │    │    Chrome     │      │
+│                  │Firestore │ │ Cloud  │    │  (persistent) │      │
+│                  │          │ │ (TLS)  │    │   sessions    │      │
+│                  └──────────┘ └────────┘    └───────────────┘      │
+│                        │                                            │
+│                        ▼                                            │
+│                  ┌──────────┐                                       │
+│                  │  Cloud   │                                       │
+│                  │ Storage  │                                       │
+│                  └──────────┘                                       │
+│                                                                     │
+│  ✅ Auto-scaling    ✅ Global CDN    ✅ Persistent WhatsApp session │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Commands
+## WPPConnect: Docker vs VM
 
-### Local
+| Aspect | Local (Docker) | Cloud (VM) |
+|--------|----------------|------------|
+| **Runtime** | Docker container | GCE VM (e2-small) |
+| **Storage** | Docker volume | Persistent SSD |
+| **IP** | localhost:21465 | Static external IP |
+| **Sessions** | Lost on restart | **Persistent** |
+| **Chrome** | Container Chrome | Native Chrome |
 
-```bash
-# Start everything
-docker-compose up -d
+**Why VM in cloud?** Chrome/Puppeteer has issues with Cloud Run's ephemeral filesystem. A dedicated VM provides stable, persistent WhatsApp sessions.
 
-# View logs
-docker-compose logs -f backend
+## Environment Variables
 
-# Reset data
-docker-compose down -v && docker-compose up -d
-
-# Access Firebase Emulator UI
-open http://localhost:4000
+### Local (docker-compose.yml)
+```yaml
+FIRESTORE_EMULATOR_HOST: firebase-emulator:8080
+STORAGE_EMULATOR_HOST: http://fake-gcs:4443
+REDIS_URL: redis://redis:6379
+WPPCONNECT_BASE_URL: http://wppconnect-server:21465
 ```
 
-### Cloud
-
+### Cloud (Terraform-managed)
 ```bash
-# Deploy infrastructure
-cd infra/terraform/environments/dev
-terraform apply
-
-# Deploy backend
-./scripts/gcp/deploy-backend.sh
-
-# View logs
-gcloud run logs read txai-backend
+# No emulator vars = real services
+REDIS_URL: rediss://:PASSWORD@host:port  # TLS
+WPPCONNECT_BASE_URL: http://<VM-IP>:21465  # Auto-synced by Terraform
 ```
 
 ## Cost Breakdown (Cloud)
 
 | Service | Monthly Cost |
 |---------|--------------|
-| Cloud Firestore | ~$0-2 (pay per operation) |
-| Cloud Run | ~$0-5 (pay per request) |
+| Cloud Run (Backend) | ~$0-5 |
+| GCE VM (WPPConnect) | ~$5-7 |
+| Cloud Firestore | ~$0-2 |
 | Cloud Storage | ~$0.02 |
 | Redis Cloud | $0 (free tier) |
 | Firebase Hosting | $0 (free tier) |
-| **Total** | **~$5-10** |
+| **Total** | **~$10-15** |
 
-## See Also
+## Quick Commands
 
-- [Storage & Redis Setup](../STORAGE_AND_REDIS_SETUP.md)
-- [Deployment Guide](../infra/deployment-guide.md)
+### Local
+```bash
+docker-compose up -d           # Start all
+docker-compose logs -f backend # View logs
+docker-compose down -v         # Reset all data
+```
+
+### Cloud
+```bash
+cd infra/terraform/environments/dev
+tofu apply                     # Deploy infrastructure
+
+# Or use the deploy script:
+./scripts/gcp/deploy-all.sh
+```

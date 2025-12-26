@@ -1,114 +1,167 @@
-# Infra (OpenTofu/Terraform) + GitHub Actions (dev-first)
+# Terraform (OpenTofu)
 
-Gerenciamos a infraestrutura no Google Cloud usando **OpenTofu** (compatível com Terraform) e executamos via **GitHub Actions** com **OIDC** (Workload Identity Federation). Sem chaves de longa duração.
+Infrastructure as Code for GCP using OpenTofu (Terraform-compatible).
 
-## Estrutura
-- `infra/terraform/bootstrap` (uma vez, local)
-  - Cria bucket GCS para state remoto
-  - Cria provider OIDC do GitHub (WIF)
-  - Cria service account `tf-admin` usado pelo GitHub Actions
-- `infra/terraform/environments/dev` (repetível, GitHub-driven)
-  - Habilita APIs necessárias
-  - Cria repositório no Artifact Registry
-  - Cria service accounts e roles
-- Cria bucket GCS (uploads privados)
-  - Cria Cloud Run service para o backend
+## Architecture
 
-## Bootstrap (rodar uma vez localmente)
-Pré-requisitos:
-- `gcloud` autenticado e apontado para o projeto dev
-- `tofu` instalado: `brew install opentofu`
+```
+infra/terraform/
+├── bootstrap/              # One-time setup (run locally)
+│   └── main.tf             # - GCS bucket for state
+│                           # - GitHub OIDC (WIF)
+│                           # - tf-admin service account
+│
+└── environments/
+    └── dev/
+        ├── main.tf         # Cloud Run, GCS, Firestore
+        ├── wppconnect-vm.tf # GCE VM for WPPConnect
+        ├── redis-cloud.tf  # Redis Cloud free tier
+        ├── variables.tf    # Input variables
+        ├── outputs.tf      # Exported values
+        └── scripts/
+            └── wppconnect-vm-startup.sh
+```
 
-Rodar:
+## Resources Created
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Terraform Resources                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Cloud Run                                                      │
+│  └─ txai-backend          (serverless API)                     │
+│                                                                 │
+│  Compute Engine                                                 │
+│  ├─ wppconnect-server     (VM: e2-small, 1 vCPU, 2GB)         │
+│  ├─ wppconnect-server-ip  (Static external IP)                 │
+│  ├─ wppconnect-server-data (Persistent SSD disk)               │
+│  └─ wppconnect-server-allow-api (Firewall: 21465, 22)          │
+│                                                                 │
+│  Storage                                                        │
+│  └─ uploads bucket        (private, signed URLs)               │
+│                                                                 │
+│  Firestore                                                      │
+│  └─ (default) database    (native mode)                        │
+│                                                                 │
+│  Secret Manager                                                 │
+│  └─ redis-url-dev         (Redis Cloud connection)             │
+│                                                                 │
+│  Service Accounts                                               │
+│  ├─ ci-deployer           (Cloud Build, Artifact Registry)     │
+│  ├─ runtime-api           (Backend: Firestore, GCS, Secrets)   │
+│  └─ runtime-whatsapp      (WPPConnect VM)                      │
+│                                                                 │
+│  Automation                                                     │
+│  └─ null_resource         (Syncs VM IP → Backend env var)      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Quick Start
+
+### Bootstrap (one-time, local)
+
 ```bash
 cd infra/terraform/bootstrap
 tofu init
 tofu apply \
-  -var="project_id=bizybox-gcp-project-dev" \
+  -var="project_id=your-project" \
   -var="region=us-central1" \
-  -var="github_owner=<github_owner>" \
-  -var="github_repo=<repo_name>"
+  -var="github_owner=your-username" \
+  -var="github_repo=your-repo"
 ```
 
-Anote os outputs:
-- `wif_provider`
-- `tf_service_account`
-- `tf_state_bucket`
+### Deploy Environment
 
-## Secrets do GitHub Actions
-Crie os secrets no repositório:
-- `GCP_WIF_PROVIDER` = output `wif_provider`
-- `GCP_TF_SERVICE_ACCOUNT` = output `tf_service_account`
-- `TF_STATE_BUCKET` = output `tf_state_bucket`
-
-O workflow está em `.github/workflows/terraform-dev.yml`.
-
-## Deploy local (uma conta nova)
-Depois do bootstrap, este é o fluxo mínimo para uma conta nova:
 ```bash
 cd infra/terraform/environments/dev
+
+# Create terraform.tfvars from example
+cp terraform.tfvars.example terraform.tfvars
+# Edit with your values
+
+# Initialize and apply
 tofu init
-tofu apply -var="project_id=SEU_PROJETO" -var="region=us-central1"
+tofu apply
 ```
 
-Use os outputs para preencher os scripts locais:
-- `artifact_repo_url`
-- `backend_cloud_run_url`
-- `firebase_hosting_url`
-
-Ou use o script único (recomendado):
+Or use the deploy script:
 ```bash
-PROJECT_ID=SEU_PROJETO TF_STATE_BUCKET=seu-bucket-tfstate \
-  scripts/gcp/deploy-all.sh
+./scripts/gcp/deploy-all.sh
 ```
 
-Template de variáveis:
-- `infra/terraform/environments/dev/terraform.tfvars.example`
+## Key Variables
 
-## Scripts locais (sem CI/CD)
-- Deploy backend (imagem Cloud Run): `scripts/gcp/deploy-backend.sh` ou `.ps1`
-- Deploy frontend (Firebase Hosting): `scripts/gcp/deploy-frontend-firebase.sh` ou `.ps1`
-- Deploy completo (Terraform + backend + frontend): `scripts/gcp/deploy-all.sh` ou `.ps1`
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `project_id` | GCP project ID | Yes |
+| `region` | GCP region | Yes |
+| `environment_name` | Environment (dev/prod) | Yes |
+| `wppconnect_secret_key` | WPPConnect API secret | Yes |
+| `wppconnect_webhook_secret` | Webhook auth token | Yes |
+| `redis_cloud_api_key` | Redis Cloud API key | Yes |
+| `redis_cloud_secret_key` | Redis Cloud secret | Yes |
 
-## Variáveis principais (environments/dev)
-- `project_id`
-- `region`
-- `environment_name`
-- `gcs_uploads_bucket_name` (opcional)
-- `gcs_bucket_location` (opcional)
-- `backend_service_name`
-- `backend_container_port`
-- `backend_image` (placeholder inicial)
-- `backend_allow_unauthenticated`
-- `backend_env_vars` (mapa de env vars para o backend)
+## Outputs
 
-Exemplo de `backend_env_vars` (em um `.tfvars`):
+| Output | Description |
+|--------|-------------|
+| `backend_cloud_run_url` | Backend API URL |
+| `wppconnect_vm_ip` | WPPConnect VM static IP |
+| `wppconnect_vm_url` | WPPConnect API URL |
+| `wppconnect_vm_ssh` | SSH command to VM |
+| `firebase_hosting_url` | Frontend URL |
+| `uploads_bucket_name` | GCS bucket name |
+
+## WPPConnect VM Auto-Sync
+
+The backend's `WPPCONNECT_BASE_URL` is **automatically updated** when the VM IP changes:
+
 ```hcl
-backend_env_vars = {
-  JWT_SECRET     = "troque-isto"
-  CORS_ORIGINS   = "https://<project-id>.web.app,https://<project-id>.firebaseapp.com"
-  STORAGE_DRIVER = "gcs"
-  GCS_BUCKET     = "seu-bucket-uploads"
-  GCS_PROJECT_ID = "seu-projeto"
+resource "null_resource" "sync_wppconnect_url_to_backend" {
+  triggers = {
+    wppconnect_ip = google_compute_address.wppconnect_vm.address
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      gcloud run services update txai-backend \
+        --update-env-vars="WPPCONNECT_BASE_URL=http://${VM_IP}:21465"
+    EOT
+  }
 }
 ```
 
-## Uploads com URLs assinadas
-O bucket de uploads é privado. O backend deve gerar URLs assinadas para upload/download.
-O service account `runtime-api` recebe `roles/iam.serviceAccountTokenCreator` para assinar URLs.
+## Environment Files
 
-## Banco (Firestore)
-O ambiente usa **Cloud Firestore** (Native Mode). Não há `DATABASE_URL`.
+```
+infra/
+└── .env.local              # Terraform secrets (not committed)
+    ├── TF_VAR_redis_cloud_api_key
+    └── TF_VAR_redis_cloud_secret_key
+```
 
-## Trunk-based + feature flags
-Recomendado:
-- Proteja a `main`
-- Branches curtas
-- Merge por trás de flags
+## Commands
 
-Opções de feature flag (Google + pragmático):
-- **Firebase Remote Config**: melhor para toggles de UI no frontend
-- **Cloud Run traffic splitting**: rollout progressivo por revisão de serviço
-- **OpenFeature (SDK) + Firestore/DB**: toggles dinâmicos no backend sem lock-in
+```bash
+# Plan changes
+tofu plan
 
-Conectaremos as flags após o primeiro deploy no Cloud Run.
+# Apply changes
+tofu apply
+
+# Destroy (careful!)
+tofu destroy
+
+# Show outputs
+tofu output
+
+# Format code
+tofu fmt -recursive
+```
+
+## See Also
+
+- [Deployment Guide](deployment-guide.md)
+- [Local vs Cloud](../architecture/LOCAL_VS_CLOUD.md)

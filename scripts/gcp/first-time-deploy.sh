@@ -205,6 +205,8 @@ TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/dev"
 cd "${TERRAFORM_DIR}"
 
 BACKEND_URL=$(tofu output -raw backend_cloud_run_url 2>/dev/null || echo "")
+WPPCONNECT_URL=$(tofu output -raw wppconnect_cloud_run_url 2>/dev/null || echo "")
+WPPCONNECT_SERVICE=$(tofu output -raw wppconnect_service_name 2>/dev/null || echo "txai-wppconnect-server")
 
 if [ -z "${BACKEND_URL}" ]; then
   log_error "Failed to get backend URL from Terraform outputs"
@@ -240,9 +242,10 @@ echo ""
 log_success "Your application is deployed to GCP!"
 echo ""
 echo "Application URLs:"
-echo "  Frontend: ${FIREBASE_URL}"
-echo "  Backend:  ${BACKEND_URL}"
-echo "  Health:   ${BACKEND_URL}/api/health"
+echo "  Frontend:   ${FIREBASE_URL}"
+echo "  Backend:    ${BACKEND_URL}"
+echo "  Health:     ${BACKEND_URL}/api/health"
+echo "  WPPConnect: ${WPPCONNECT_URL}"
 echo ""
 echo "--------------------------------------"
 echo "Important Next Steps:"
@@ -277,6 +280,7 @@ echo "   open ${FIREBASE_URL}"
 echo ""
 echo "4. Monitor Logs:"
 echo "   gcloud run services logs read ${BACKEND_SERVICE} --region ${REGION} --limit 50"
+echo "   gcloud run services logs read ${WPPCONNECT_SERVICE} --region ${REGION} --limit 50"
 echo ""
 echo "5. Manage Database Migrations:"
 echo "   Cloud Run automatically runs 'prisma migrate deploy' on startup"

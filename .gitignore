@@ -19,13 +19,21 @@ frontend/dist/
 # Environment files (secrets - NEVER commit!)
 .env
 .env.local
+.env.dev
+.env.prod
 .env.development.local
 .env.test.local
 .env.production.local
 .env.production
 
-# BUT keep the example template
+# Nested .env.local files (backend, frontend, infra)
+**/.env.local
+**/.env.dev
+**/.env.prod
+
+# BUT keep all .env.example templates
 !.env.example
+!**/.env.example
 
 # Logs
 logs/

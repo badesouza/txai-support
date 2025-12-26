@@ -1,19 +1,16 @@
 locals {
   required_apis = [
     "run.googleapis.com",
-    "compute.googleapis.com",
     "cloudbuild.googleapis.com",
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
-    "sqladmin.googleapis.com",
     "iam.googleapis.com",
     "serviceusage.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
-    "apigateway.googleapis.com",
-    "cloudfunctions.googleapis.com",
     "storage.googleapis.com",
+    "compute.googleapis.com", # For GCE VM option
     "firestore.googleapis.com",
     "firebaserules.googleapis.com",
   ]
@@ -104,48 +101,17 @@ locals {
   firebase_primary_url   = "https://${var.project_id}.web.app"
   firebase_alternate_url = "https://${var.project_id}.firebaseapp.com"
 
-  # WPPConnect-Server config (mirrors repo's wppconnect/config.json defaults,
-  # with browserArgs needed for running Chromium inside Cloud Run).
-  wppconnect_config_json = jsonencode({
-    secretKey          = var.wppconnect_secret_key
-    host               = "http://localhost"
-    port               = tostring(var.wppconnect_container_port)
-    customUserDataDir  = "./userDataDir/"
-    startAllSession    = true
-    maxListeners       = 15
-    webhook            = {
-      url             = null
-      autoDownload    = false
-      readMessage     = false
-      allUnreadOnStart = true
-    }
-    archive            = {
-      enable        = false
-      waitTime      = 10
-      diasToArchive = 45
-    }
-    log                = {
-      level  = "error"
-      logger = ["console"]
-    }
-    createOptions       = {
-      autoClose   = 120000
-      browserArgs = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-    }
-  })
-
-  # WPPConnect-Server base URL (now hosted on a persistent VM with a static IP).
-  wppconnect_base_url = "http://${google_compute_address.wppconnect_ip.address}:${var.wppconnect_container_port}"
+  # WPPConnect-Server base URL - points to VM
+  wppconnect_base_url = "http://${google_compute_address.wppconnect_vm.address}:21465"
 
   default_backend_env_vars = {
     STORAGE_DRIVER = "gcs"
     GCS_BUCKET     = google_storage_bucket.uploads.name
     GCS_PROJECT_ID = var.project_id
     # Backend Firebase initialization depends on GCP_PROJECT_ID/FIREBASE_PROJECT_ID.
-    # If missing it falls back to "local-dev" and fails in Cloud Run.
     GCP_PROJECT_ID      = var.project_id
     FIREBASE_PROJECT_ID = var.project_id
-    # WhatsApp uses WPPConnect-Server in Cloud Run (no Puppeteer/Chromium in backend).
+    # WhatsApp uses WPPConnect-Server VM
     WHATSAPP_DRIVER           = "server"
     WPPCONNECT_BASE_URL       = local.wppconnect_base_url
     WPPCONNECT_SESSION        = var.wppconnect_session
@@ -187,6 +153,13 @@ resource "google_storage_bucket" "uploads" {
 }
 
 # =============================================================================
+# GCS Bucket for WPPConnect-Server userDataDir (DISABLED - using /tmp instead)
+# =============================================================================
+# Note: We're using ephemeral /tmp storage instead of GCS FUSE for reliability.
+# Sessions are lost on cold starts, but this avoids GCS FUSE issues with Chrome.
+# To re-enable persistent storage, consider using a VM with local SSD instead.
+
+# =============================================================================
 # Firestore Database (Native Mode)
 # =============================================================================
 resource "google_firestore_database" "main" {
@@ -201,32 +174,27 @@ resource "google_firestore_database" "main" {
   depends_on = [google_project_service.apis]
 }
 
-resource "google_secret_manager_secret" "wppconnect_config" {
-  project   = var.project_id
-  secret_id = "wppconnect-config-${var.environment_name}"
+# =============================================================================
+# WPPConnect-Server is now deployed as a VM (see wppconnect-vm.tf)
+# =============================================================================
+# The Cloud Run deployment was removed due to Chrome/Puppeteer stability issues.
+# VMs provide persistent storage and better Chrome compatibility.
 
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_secret_manager_secret_version" "wppconnect_config" {
-  secret      = google_secret_manager_secret.wppconnect_config.id
-  secret_data = local.wppconnect_config_json
-}
-
+# =============================================================================
+# Backend Cloud Run Service
+# =============================================================================
 resource "google_cloud_run_v2_service" "backend" {
-  name     = var.backend_service_name
-  location = var.region
-  ingress  = "INGRESS_TRAFFIC_ALL"
+  name                = var.backend_service_name
+  location            = var.region
+  ingress             = "INGRESS_TRAFFIC_ALL"
+  deletion_protection = false
 
   template {
     service_account = google_service_account.runtime_api.email
     timeout         = "300s"
 
     scaling {
+      min_instance_count = 0
       max_instance_count = 10
     }
 
@@ -237,9 +205,8 @@ resource "google_cloud_run_v2_service" "backend" {
       }
 
       startup_probe {
-        timeout_seconds = 10
-        period_seconds  = 10
-        # Allow up to ~5 minutes for cold start + migrations + seed before failing startup
+        timeout_seconds   = 10
+        period_seconds    = 10
         failure_threshold = 30
         tcp_socket {
           port = var.backend_container_port
@@ -267,7 +234,6 @@ resource "google_cloud_run_v2_service" "backend" {
           }
         }
       }
-
     }
   }
 
@@ -280,7 +246,10 @@ resource "google_cloud_run_v2_service" "backend" {
     ]
   }
 
-  depends_on = [google_project_service.apis]
+  depends_on = [
+    google_project_service.apis,
+    google_compute_address.wppconnect_vm, # Backend needs wppconnect VM IP (address, not instance)
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "backend_invoker" {
@@ -289,4 +258,33 @@ resource "google_cloud_run_v2_service_iam_member" "backend_invoker" {
   location = google_cloud_run_v2_service.backend.location
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# =============================================================================
+# Sync WPPConnect VM IP to Backend (automated)
+# =============================================================================
+# This ensures the backend always has the correct WPPCONNECT_BASE_URL
+# even though env vars are in ignore_changes (for deploy script compatibility).
+# Triggers whenever the VM IP changes.
+resource "null_resource" "sync_wppconnect_url_to_backend" {
+  triggers = {
+    wppconnect_ip   = google_compute_address.wppconnect_vm.address
+    backend_service = google_cloud_run_v2_service.backend.name
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "Syncing WPPCONNECT_BASE_URL to backend..."
+      gcloud run services update ${google_cloud_run_v2_service.backend.name} \
+        --region=${var.region} \
+        --project=${var.project_id} \
+        --update-env-vars="WPPCONNECT_BASE_URL=http://${google_compute_address.wppconnect_vm.address}:21465"
+      echo "✅ Backend updated with WPPCONNECT_BASE_URL=http://${google_compute_address.wppconnect_vm.address}:21465"
+    EOT
+  }
+
+  depends_on = [
+    google_cloud_run_v2_service.backend,
+    google_compute_instance.wppconnect,
+  ]
 }
