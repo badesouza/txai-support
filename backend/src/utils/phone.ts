@@ -37,7 +37,7 @@ export function normalizePhone(input: string): string {
   const digits = input.replace(/\D/g, '');
   
   // Remove leading 55 if present for re-normalization
-  let phone = digits.startsWith('55') ? digits.slice(2) : digits;
+  const phone = digits.startsWith('55') ? digits.slice(2) : digits;
   
   // Validate and normalize based on length
   if (phone.length === 11) {

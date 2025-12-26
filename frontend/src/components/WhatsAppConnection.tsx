@@ -124,7 +124,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
       // Não aguardamos aqui; checkStatus já protege concorrência
       void checkStatus();
     }, 10000); // 10 segundos
-  }, [checkStatus, stopPolling, isConnected, qrCode]);
+  }, [checkStatus, stopPolling]);
 
   const disconnectWhatsApp = async () => {
     setLoading(true);
@@ -191,7 +191,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
       mountedRef.current = false;
       stopPolling();
     };
-  }, [session]); // Re-run when session changes  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, checkStatus, startPolling, stopPolling]);
 
   if (checkingStatus) {
     return (

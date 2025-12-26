@@ -1,0 +1,135 @@
+# =============================================================================
+# Development Docker Compose - Services Only
+# =============================================================================
+# This file runs only infrastructure services (Firebase, WPPConnect, Redis, GCS)
+# while frontend and backend run locally with hot reload for rapid development.
+#
+# Usage:
+#   npm run dev:services        # Start services
+#   npm run dev:services:logs   # View logs
+#   npm run dev:services:stop   # Stop services
+# =============================================================================
+
+services:
+  # =============================================================================
+  # Firebase Emulator Suite (Firestore, Auth)
+  # =============================================================================
+  firebase-emulator:
+    image: andreysenov/firebase-tools:latest
+    container_name: txai-firebase-emulator
+    restart: unless-stopped
+    ports:
+      - "4000:4000"   # Emulator UI
+      - "8082:8082"   # Firestore
+      - "9099:9099"   # Auth
+      - "9199:9199"   # Storage (if needed)
+    volumes:
+      - ./firebase.json:/home/node/firebase.json:ro
+      - ./firestore.rules:/home/node/firestore.rules:ro
+      - ./firestore.indexes.json:/home/node/firestore.indexes.json:ro
+      - firebase_data:/home/node/.cache/firebase/emulators
+    command: firebase emulators:start --only firestore,auth --project local-dev
+    networks:
+      - txai-dev-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # =============================================================================
+  # Redis - for WhatsApp sessions and caching
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: txai-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - txai-dev-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # =============================================================================
+  # GCS Emulator - https://github.com/fsouza/fake-gcs-server
+  # Bucket is auto-created via mounted directory structure
+  # =============================================================================
+  fake-gcs:
+    image: fsouza/fake-gcs-server:latest
+    container_name: txai-fake-gcs
+    restart: unless-stopped
+    ports:
+      - "4443:4443"
+    volumes:
+      # Mount with pre-created bucket directory - fake-gcs recognizes subdirs as buckets
+      - ./data/gcs:/data
+    command:
+      - "-scheme=http"
+      - "-port=4443"
+      - "-external-url=http://localhost:4443"
+      - "-public-host=localhost:4443"
+    networks:
+      - txai-dev-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4443/storage/v1/b"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # =============================================================================
+  # WPPConnect Server - WhatsApp API
+  # Image: https://hub.docker.com/r/wppconnect/server-cli
+  # Docs:  https://wppconnect.io/docs/wppconnect-server/
+  # =============================================================================
+  wppconnect-server:
+    image: wppconnect/server-cli:latest
+    # wppconnect/server-cli is amd64-only; allow override if you have a native build.
+    platform: ${WPPCONNECT_PLATFORM:-linux/amd64}
+    container_name: txai-wppconnect-server
+    restart: unless-stopped
+    ports:
+      - "21465:21465"
+    command: ["--config", "/usr/src/wpp-server/config.json"]
+    environment:
+      PORT: 21465
+      SECRET_KEY: ${WPPCONNECT_SECRET_KEY:-dev-secret-key}
+      TZ: America/Sao_Paulo
+    volumes:
+      - ./wppconnect/config.json:/usr/src/wpp-server/config.json:ro
+      # Persist session data (WhatsApp auth state)
+      - wppconnect_data:/usr/src/wpp-server/userDataDir
+    networks:
+      - txai-dev-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:21465/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  firebase_data:
+    driver: local
+  redis_data:
+    driver: local
+  wppconnect_data:
+    driver: local
+
+networks:
+  txai-dev-network:
+    driver: bridge
+

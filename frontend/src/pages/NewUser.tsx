@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../config/axios';
-import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 import InputMask from 'react-input-mask';
 
@@ -36,7 +35,7 @@ export default function NewUser() {
     }
 
     try {
-      const response = await api.post('/users', formData);
+      await api.post('/users', formData);
       
       Swal.fire({
         icon: 'success',

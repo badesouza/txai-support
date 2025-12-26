@@ -412,7 +412,7 @@ export class WhatsAppMessageProcessor {
   private async createAttachmentInSubcollection(
     callId: string,
     saved: { relativePath: string; filename: string; mimetype: string },
-    kind: 'image' | 'video'
+    _kind: 'image' | 'video'
   ): Promise<string> {
     const attachment = await CallAttachmentRepository.create(callId, {
       filename: saved.filename,

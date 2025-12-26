@@ -31,9 +31,11 @@ frontend/dist/
 **/.env.dev
 **/.env.prod
 
-# BUT keep all .env.example templates
+# BUT keep all .env.example and .env.local.example templates
 !.env.example
 !**/.env.example
+!.env.local.example
+!**/.env.local.example
 
 # Logs
 logs/

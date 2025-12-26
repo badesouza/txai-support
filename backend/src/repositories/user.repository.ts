@@ -221,7 +221,7 @@ export class UserRepository {
    * Check if email exists
    */
   static async emailExists(email: string, excludeId?: string): Promise<boolean> {
-    let query = collection.where('email', '==', email);
+    const query = collection.where('email', '==', email);
     
     const snapshot = await query.limit(1).get();
     

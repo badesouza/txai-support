@@ -1,6 +1,5 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { act } from 'react-dom/test-utils';
 import { message } from 'antd';
 import WhatsAppConnection from '../WhatsAppConnection';
 import api from '../../config/axios';

@@ -5,6 +5,17 @@
  * It is idempotent - safe to run multiple times.
  */
 
+// Load environment variables from .env.local files
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Load root .env.local first (shared config like GCP_PROJECT_ID)
+dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
+// Then load backend-specific .env.local (overrides root values if duplicated)
+dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
+// Fallback to .env if neither .env.local exists
+dotenv.config();
+
 import { initializeFirebase, getFirestore } from '../lib/firebase';
 import { UserRepository } from '../repositories';
 import bcrypt from 'bcryptjs';
@@ -15,7 +26,7 @@ async function seed() {
   try {
     // Initialize Firebase
     initializeFirebase();
-    const db = getFirestore();
+    getFirestore(); // Initialize Firestore connection
     console.log('✅ Firebase initialized');
 
     // Check if admin user exists

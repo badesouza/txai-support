@@ -27,7 +27,6 @@ import {
   SEMRESATTRS_SERVICE_VERSION,
   SEMRESATTRS_DEPLOYMENT_ENVIRONMENT,
 } from '@opentelemetry/semantic-conventions';
-import type { IncomingMessage } from 'http';
 
 // =============================================================================
 // Configuration

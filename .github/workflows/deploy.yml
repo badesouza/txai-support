@@ -1,6 +1,15 @@
 name: Deploy
 
 on:
+  # Auto-deploy to dev on push to main
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'infra/terraform/**'
+      - '.github/workflows/deploy.yml'
+  # Manual deployment for all environments
   workflow_dispatch:
     inputs:
       environment:
@@ -35,22 +44,80 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-${{ inputs.environment }}
-  cancel-in-progress: ${{ inputs.environment == 'dev' }}
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && (inputs.environment || 'dev') || 'dev' }}
+  cancel-in-progress: ${{ (github.event_name == 'workflow_dispatch' && (inputs.environment || 'dev') == 'dev') || github.event_name == 'push' }}
 
 env:
   TOFU_VERSION: '1.8.6'
   NODE_VERSION: '20'
 
 jobs:
+  # Determine deployment parameters
+  determine-deployment:
+    name: Determine Deployment Parameters
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.params.outputs.environment }}
+      components: ${{ steps.params.outputs.components }}
+      ref: ${{ steps.params.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for git diff
+      
+      - name: Set deployment parameters
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Manual deployment - use inputs
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "components=${{ inputs.components }}" >> $GITHUB_OUTPUT
+            echo "ref=${{ inputs.ref }}" >> $GITHUB_OUTPUT
+          else
+            # Auto-deployment on push to main
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "ref=${{ github.sha }}" >> $GITHUB_OUTPUT
+            
+            # Determine components based on changed files
+            COMPONENTS=""
+            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "^infra/terraform/"; then
+              COMPONENTS="${COMPONENTS}infra,"
+            fi
+            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "^backend/"; then
+              COMPONENTS="${COMPONENTS}backend,"
+            fi
+            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "^frontend/"; then
+              COMPONENTS="${COMPONENTS}frontend,"
+            fi
+            
+            # Default to backend-frontend if no specific changes detected
+            if [ -z "$COMPONENTS" ]; then
+              COMPONENTS="backend-frontend"
+            else
+              # Remove trailing comma and format
+              COMPONENTS=$(echo "$COMPONENTS" | sed 's/,$//')
+              # Convert to standard format
+              if [[ "$COMPONENTS" == *"infra"* ]] && [[ "$COMPONENTS" == *"backend"* ]] && [[ "$COMPONENTS" == *"frontend"* ]]; then
+                COMPONENTS="all"
+              elif [[ "$COMPONENTS" == *"infra"* ]] && [[ "$COMPONENTS" == *"backend"* ]]; then
+                COMPONENTS="infra-backend"
+              elif [[ "$COMPONENTS" == *"backend"* ]] && [[ "$COMPONENTS" == *"frontend"* ]]; then
+                COMPONENTS="backend-frontend"
+              fi
+            fi
+            
+            echo "components=${COMPONENTS}" >> $GITHUB_OUTPUT
+          fi
+
   # ============================================
   # INFRASTRUCTURE DEPLOYMENT
   # ============================================
   deploy-infra:
     name: Deploy Infrastructure
-    if: contains(fromJSON('["all", "infra", "infra-backend"]'), inputs.components)
+    needs: [determine-deployment]
+    if: contains(fromJSON('["all", "infra", "infra-backend"]'), needs.determine-deployment.outputs.components)
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ needs.determine-deployment.outputs.environment }}
     outputs:
       backend_url: ${{ steps.outputs.outputs.backend_url }}
       backend_service_name: ${{ steps.outputs.outputs.backend_service_name }}
@@ -59,7 +126,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.determine-deployment.outputs.ref }}
 
       - uses: opentofu/setup-opentofu@v1
         with:
@@ -79,7 +146,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', inputs.environment)) }}
+          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', needs.determine-deployment.outputs.environment)) }}
           restore-keys: |
             ${{ runner.os }}-tofu-
 
@@ -87,8 +154,8 @@ jobs:
         run: |
           tofu init \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-            -backend-config="prefix=terraform/${{ inputs.environment }}"
-        working-directory: infra/terraform/environments/${{ inputs.environment }}
+            -backend-config="prefix=terraform/${{ needs.determine-deployment.outputs.environment }}"
+        working-directory: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
 
       - name: Apply Infrastructure
         run: |
@@ -99,7 +166,7 @@ jobs:
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
             -var="region=${{ vars.GCP_REGION || 'us-central1' }}" \
             -var="redis_enabled=false"
-        working-directory: infra/terraform/environments/${{ inputs.environment }}
+        working-directory: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
 
       - name: Extract Outputs
         id: outputs
@@ -108,27 +175,27 @@ jobs:
           echo "backend_service_name=$(tofu output -raw backend_service_name)" >> $GITHUB_OUTPUT
           echo "artifact_repo_url=$(tofu output -raw artifact_repo_url)" >> $GITHUB_OUTPUT
           echo "wppconnect_url=$(tofu output -raw wppconnect_base_url)" >> $GITHUB_OUTPUT
-        working-directory: infra/terraform/environments/${{ inputs.environment }}
+        working-directory: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
 
   # ============================================
   # BACKEND DEPLOYMENT
   # ============================================
   deploy-backend:
     name: Deploy Backend
-    needs: [deploy-infra]
+    needs: [determine-deployment, deploy-infra]
     # Run even if deploy-infra was skipped
     if: |
       always() && 
-      contains(fromJSON('["all", "backend", "infra-backend", "backend-frontend"]'), inputs.components) &&
+      contains(fromJSON('["all", "backend", "infra-backend", "backend-frontend"]'), needs.determine-deployment.outputs.components) &&
       (needs.deploy-infra.result == 'success' || needs.deploy-infra.result == 'skipped')
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ needs.determine-deployment.outputs.environment }}
     outputs:
       backend_url: ${{ steps.deploy.outputs.backend_url }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.determine-deployment.outputs.ref }}
 
       - uses: google-github-actions/auth@v2
         with:
@@ -153,10 +220,10 @@ jobs:
             echo "wppconnect_url=${{ needs.deploy-infra.outputs.wppconnect_url }}" >> $GITHUB_OUTPUT
           else
             # Fetch from existing Terraform state
-            cd infra/terraform/environments/${{ inputs.environment }}
+            cd infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
             tofu init \
               -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-              -backend-config="prefix=terraform/${{ inputs.environment }}"
+              -backend-config="prefix=terraform/${{ needs.determine-deployment.outputs.environment }}"
             echo "backend_url=$(tofu output -raw backend_cloud_run_url)" >> $GITHUB_OUTPUT
             echo "backend_service_name=$(tofu output -raw backend_service_name)" >> $GITHUB_OUTPUT
             echo "artifact_repo_url=$(tofu output -raw artifact_repo_url)" >> $GITHUB_OUTPUT
@@ -177,7 +244,7 @@ jobs:
           REGION="${{ vars.GCP_REGION || 'us-central1' }}"
           AR_REPO="txai-support"
           IMAGE_NAME="txai-backend"
-          IMAGE_TAG="${{ inputs.ref }}-$(date +%Y%m%d%H%M%S)"
+          IMAGE_TAG="${{ needs.determine-deployment.outputs.ref }}-$(date +%Y%m%d%H%M%S)"
           IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
           IMAGE_LATEST="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:latest"
           
@@ -234,15 +301,15 @@ jobs:
     name: Deploy Frontend
     if: |
       always() &&
-      contains(fromJSON('["all", "frontend", "backend-frontend"]'), inputs.components) &&
+      contains(fromJSON('["all", "frontend", "backend-frontend"]'), needs.determine-deployment.outputs.components) &&
       (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
-    needs: [deploy-infra, deploy-backend]
+    needs: [determine-deployment, deploy-infra, deploy-backend]
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ needs.determine-deployment.outputs.environment }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.determine-deployment.outputs.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -269,10 +336,10 @@ jobs:
             echo "url=${{ needs.deploy-infra.outputs.backend_url }}" >> $GITHUB_OUTPUT
           else
             # Fetch from Terraform state
-            cd infra/terraform/environments/${{ inputs.environment }}
+            cd infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
             tofu init \
               -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-              -backend-config="prefix=terraform/${{ inputs.environment }}"
+              -backend-config="prefix=terraform/${{ needs.determine-deployment.outputs.environment }}"
             echo "url=$(tofu output -raw backend_cloud_run_url)" >> $GITHUB_OUTPUT
           fi
 
@@ -311,8 +378,8 @@ jobs:
           echo "| Backend | ${{ needs.deploy-backend.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend | ${{ needs.deploy-frontend.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`${{ inputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Ref:** \`${{ inputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Components:** \`${{ inputs.components }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ needs.determine-deployment.outputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Ref:** \`${{ needs.determine-deployment.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Components:** \`${{ needs.determine-deployment.outputs.components }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
 
