@@ -58,7 +58,7 @@ export class WhatsAppController {
         return res.json(this.statusCache);
       }
 
-      const { isConnected: status, hasQRCode, qrCode } = await whatsappService.getConnectionStatus();
+      const { isConnected: status, hasQRCode: _hasQRCode, qrCode } = await whatsappService.getConnectionStatus();
       const phone = null;
 
       if (status) {

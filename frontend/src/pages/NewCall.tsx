@@ -43,7 +43,7 @@ export default function NewCall() {
         formDataToSend.append('images', image);
       });
 
-      const callResponse = await api.post(
+      await api.post(
         API_CONFIG.ENDPOINTS.CALLS,
         formDataToSend,
         {

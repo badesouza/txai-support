@@ -9,10 +9,10 @@ import process from 'process';
 import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
-import { storage } from './storage/storage';
 import { swaggerSpec } from './config/swagger';
 import { initializeFirebase, getFirestore } from './lib/firebase';
 import { whatsappService } from './services/whatsapp/whatsapp.service';
+import { seed } from './scripts/seed';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -78,6 +78,17 @@ async function startServer() {
     // Basic Firestore connection check (read-only)
     await db.collection('_health').doc('check').get();
     console.log('✅ Firestore ready');
+
+    // Auto-seed database in development mode (idempotent - safe to run multiple times)
+    if (process.env.FIRESTORE_EMULATOR_HOST || process.env.NODE_ENV === 'development') {
+      seed()
+        .then(() => {
+          console.log('✅ Database seeding completed');
+        })
+        .catch((error) => {
+          console.warn('⚠️ Database seeding failed (non-critical):', error instanceof Error ? error.message : error);
+        });
+    }
 
     // Start WPPConnect Direct Service (optional, async, don't wait)
     if (whatsappEnabled) {

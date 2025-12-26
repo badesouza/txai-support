@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import { Table, Input, Button, Space, message as antdMessage } from 'antd';
+import { Table, Input, Button, Space } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 import api from '../config/axios';
 import { API_CONFIG } from '../config/api';

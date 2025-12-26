@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EditOutlined, DeleteOutlined, EyeOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { Table, Input, Button, Space, Tag, Modal, Image, Tooltip, Timeline, Typography, Divider, Empty, Skeleton, Tabs } from 'antd';
@@ -231,7 +231,7 @@ export default function CallTable() {
     }
   };
 
-  const fetchCalls = async () => {
+  const fetchCalls = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -268,7 +268,7 @@ export default function CallTable() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentPage, searchTerm]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -276,7 +276,7 @@ export default function CallTable() {
     }, 300);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [currentPage, searchTerm]);
+  }, [fetchCalls]);
 
   const handleEdit = (callId: string | number) => {
     navigate(`/calls/edit/${callId}`);

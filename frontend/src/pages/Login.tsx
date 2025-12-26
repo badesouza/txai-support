@@ -38,10 +38,10 @@ const Login = () => {
     return (
         <section className="min-h-screen bg-gray-50 dark:bg-gray-900">
             <div className="flex flex-col items-center justify-center px-6 py-8 mx-auto min-h-screen">
-                <a href="#" className="flex items-center mb-6 text-2xl font-semibold text-gray-900 dark:text-white">
+                <div className="flex items-center mb-6 text-2xl font-semibold text-gray-900 dark:text-white">
                     <img className="w-8 h-8 mr-2" src="/logo.svg" alt="TXAI Support Logo" />
                     TXAI Support
-                </a>
+                </div>
                 <div className="w-full bg-white rounded-lg shadow dark:border md:mt-0 sm:max-w-md xl:p-0 dark:bg-gray-800 dark:border-gray-700">
                     <div className="p-6 space-y-4 md:space-y-6 sm:p-8">
                         <h1 className="text-xl font-bold leading-tight tracking-tight text-gray-900 md:text-2xl dark:text-white">
@@ -87,7 +87,7 @@ const Login = () => {
                                         <label htmlFor="remember" className="text-gray-500 dark:text-gray-300">Lembrar-me</label>
                                     </div>
                                 </div>
-                                <a href="#" className="text-sm font-medium text-primary-600 hover:underline dark:text-primary-500">Esqueceu a senha?</a>
+                                <button type="button" className="text-sm font-medium text-primary-600 hover:underline dark:text-primary-500 bg-transparent border-none cursor-pointer p-0">Esqueceu a senha?</button>
                             </div>
                             <button
                                 type="submit"

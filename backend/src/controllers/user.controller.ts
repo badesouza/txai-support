@@ -4,12 +4,12 @@ import bcrypt from 'bcryptjs';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/jwt';
 import { UserRepository } from '../repositories';
 import { Profile } from '../types/models';
-import { normalizePhone, formatPhoneForDisplay, isValidBrazilianPhone } from '../utils/phone';
+import { normalizePhone, formatPhoneForDisplay } from '../utils/phone';
 
 export class UserController {
     static async register(req: Request, res: Response) {
         try {
-            const { confirmPassword, ...userData } = req.body;
+            const { confirmPassword: _confirmPassword, ...userData } = req.body;
 
             if (!userData.email || !userData.password || !userData.name || !userData.phone) {
                 return res.status(400).json({ 
@@ -155,7 +155,7 @@ export class UserController {
                 return res.status(401).json({ message: 'User not authenticated' });
             }
 
-            const { password, ...updateData } = req.body;
+            const { password: _password, ...updateData } = req.body;
             
             // Validate and normalize phone if updating
             if (updateData.phone) {
@@ -223,7 +223,7 @@ export class UserController {
             }
 
             console.log('Dados recebidos para atualização:', req.body);
-            const { password, ...updateData } = req.body;
+            const { password: _password, ...updateData } = req.body;
 
             // Validate and normalize phone if present
             if (updateData.phone) {
@@ -250,9 +250,9 @@ export class UserController {
             }
 
             // Se uma nova senha foi fornecida, gerar o hash
-            if (password) {
+            if (_password) {
                 console.log('Gerando hash da nova senha...');
-                const hashedPassword = await bcrypt.hash(password, 10);
+                const hashedPassword = await bcrypt.hash(_password, 10);
                 console.log('Hash da senha gerado');
                 updateData.password = hashedPassword;
             }

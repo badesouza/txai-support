@@ -10,7 +10,7 @@
 //   }
 // =============================================================================
 
-import { trace, SpanStatusCode, Span, Context, context } from '@opentelemetry/api';
+import { trace, SpanStatusCode, Span } from '@opentelemetry/api';
 
 /**
  * Decorator to automatically trace method execution
