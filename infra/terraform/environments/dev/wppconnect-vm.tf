@@ -48,10 +48,10 @@ resource "google_compute_address" "wppconnect_vm" {
 # Persistent Disk for userDataDir (WhatsApp session data)
 # =============================================================================
 resource "google_compute_disk" "wppconnect_data" {
-  name  = "${var.wppconnect_vm_name}-data"
-  type  = "pd-ssd"
-  zone  = var.wppconnect_vm_zone
-  size  = var.wppconnect_vm_disk_size_gb
+  name = "${var.wppconnect_vm_name}-data"
+  type = "pd-ssd"
+  zone = var.wppconnect_vm_zone
+  size = var.wppconnect_vm_disk_size_gb
 
   labels = {
     environment = var.environment_name

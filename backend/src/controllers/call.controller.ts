@@ -44,18 +44,8 @@ export class CallController {
         search
       });
 
-      // Debug logs
-      console.log('Calls with images:', result.data.map(call => ({
-        id: call.id,
-        title: call.title,
-        imagesCount: call.images?.length,
-        images: call.images
-      })));
-
-      // Hydrate images with URLs and add user info
-      const callsWithUrls = await Promise.all(result.data.map(async (call) => {
-        const hydratedCall = await CallController.hydrateImages(call);
-        
+      // Hydrate with user info and fetch first 3 attachments for thumbnails
+      const callsWithData = await Promise.all(result.data.map(async (call) => {
         // Get user info if available
         let user = null;
         if (call.userId) {
@@ -70,14 +60,24 @@ export class CallController {
           }
         }
 
+        // Fetch first 3 attachments for thumbnails in list view
+        const attachments = await CallAttachmentRepository.findByCallId(call.id, 3);
+        const hydratedAttachments = await Promise.all(
+          attachments.map(async (att) => ({
+            ...att,
+            url: await storage.getFileUrl(att.path),
+          }))
+        );
+
         return {
-          ...hydratedCall,
-          user
+          ...call,
+          user,
+          attachments: hydratedAttachments,
         };
       }));
 
       res.json({
-        calls: callsWithUrls,
+        calls: callsWithData,
         pagination: {
           total: result.total,
           page,
@@ -461,6 +461,50 @@ export class CallController {
       console.error('Error deleting call image:', error);
       res.status(500).json({ 
         message: 'Error deleting call image',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  static async deleteCallAttachment(req: Request, res: Response) {
+    try {
+      const callId = req.params.callId;
+      const attachmentId = req.params.attachmentId;
+
+      if (!callId || !attachmentId) {
+        return res.status(400).json({ message: 'Invalid call ID or attachment ID' });
+      }
+
+      // Find the attachment first
+      const attachment = await CallAttachmentRepository.findById(callId, attachmentId);
+
+      if (!attachment) {
+        return res.status(404).json({ message: 'Attachment not found' });
+      }
+
+      // Delete from Firestore
+      const deleted = await CallAttachmentRepository.delete(callId, attachmentId);
+
+      if (!deleted) {
+        return res.status(404).json({ message: 'Attachment not found' });
+      }
+
+      // Delete file from GCS
+      try {
+        await storage.deleteFile(attachment.path);
+        console.log(`🗑️ Deleted file from GCS: ${attachment.path}`);
+      } catch (deleteError) {
+        console.warn('Error deleting attachment file from GCS:', deleteError);
+      }
+
+      // Decrement attachment count on call
+      await CallRepository.decrementAttachmentCount(callId);
+
+      res.json({ message: 'Attachment deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting call attachment:', error);
+      res.status(500).json({ 
+        message: 'Error deleting call attachment',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }

@@ -4,11 +4,11 @@ import { EditOutlined, DeleteOutlined, EyeOutlined, PlayCircleOutlined } from '@
 import { Table, Input, Button, Space, Tag, Modal, Image, Tooltip, Timeline, Typography, Divider, Empty, Skeleton, Tabs } from 'antd';
 import type { ColumnType } from 'antd/es/table';
 import api from '../config/axios';
-import { API_CONFIG, getImageUrl } from '../config/api';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
 
 interface Call {
-  id: number | string;
+  id: string;
   title: string;
   description: string;
   status: string;
@@ -16,26 +16,22 @@ interface Call {
   createdAt: string;
   updatedAt?: string;
   user?: {
-    id: number | string;
+    id: string;
     name: string;
     email: string;
     phone: string;
   } | null;
-  // Denormalized user fields (new data model)
+  // Denormalized user fields
+  userId?: string;
   userName?: string;
   userEmail?: string;
   userPhone?: string;
-  images?: Array<{
-    id: number | string;
-    filename: string;
-    path: string;
-  }>;
-  // New aggregated fields
+  // Aggregated fields
   messageCount?: number;
   attachmentCount?: number;
   lastActivityAt?: string;
   lastMessagePreview?: string;
-  // New subcollection data (when details=true)
+  // Subcollection data (when details=true)
   messages?: Array<{
     id: string;
     content: string;
@@ -346,15 +342,6 @@ export default function CallTable() {
     }
   };
 
-  const isVideoFile = (value: string) => {
-    const lower = value.toLowerCase();
-    return lower.includes('.mp4') || lower.includes('.mov') || lower.includes('.webm') || lower.includes('.3gp');
-  };
-
-  const isLikelyVideo = (image: { path: string; filename?: string }) => {
-    return isVideoFile(image.filename || '') || isVideoFile(image.path || '');
-  };
-
   const columns: ColumnType<Call>[] = [
     {
       title: 'Número',
@@ -550,33 +537,35 @@ export default function CallTable() {
         />
       </div>
 
-      {/* Image Gallery Modal */}
+      {/* Attachment Gallery Modal */}
       <Modal
-        title="Galeria de Imagens"
+        title="Galeria de Anexos"
         open={selectedImages !== null}
         onCancel={() => setSelectedImages(null)}
         footer={null}
         width={800}
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {selectedImages?.filter(image => image.path).map((image) =>
-            isLikelyVideo(image) ? (
+          {selectedImages?.filter(item => item.path).map((item) => {
+            const url = item.path; // Path is already the URL from attachments
+            const isVideo = item.filename?.match(/\.(mp4|webm|mov|avi)$/i) || item.path?.includes('video');
+            return isVideo ? (
               <video
-                key={image.id}
+                key={item.id}
                 className="w-full rounded-lg"
                 controls
                 preload="metadata"
-                src={getImageUrl(image.path)}
+                src={url}
               />
             ) : (
               <Image
-                key={image.id}
-                src={getImageUrl(image.path)}
-                alt="Imagem do chamado"
+                key={item.id}
+                src={url}
+                alt={item.filename || 'Anexo do chamado'}
                 className="rounded-lg"
               />
-            )
-          )}
+            );
+          })}
         </div>
       </Modal>
 

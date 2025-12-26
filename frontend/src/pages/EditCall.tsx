@@ -1,14 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../config/axios';
-import { API_CONFIG, getImageUrl } from '../config/api';
+import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
-
-interface CallImage {
-  id: number | string;
-  filename: string;
-  path: string;
-}
 
 interface CallAttachment {
   id: string;
@@ -30,7 +24,6 @@ export default function EditCall() {
     priority: 'MEDIUM'
   });
   const [initialStatus, setInitialStatus] = useState('');
-  const [images, setImages] = useState<CallImage[]>([]);
   const [attachments, setAttachments] = useState<CallAttachment[]>([]);
   const [newImages, setNewImages] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
@@ -49,18 +42,9 @@ export default function EditCall() {
         });
         setInitialStatus(call.status);
         
-        // Handle legacy images
-        if (call.images && Array.isArray(call.images)) {
-          console.log('🖼️ Imagens (legacy) encontradas:', call.images);
-          setImages(call.images);
-        } else {
-          setImages([]);
-        }
-        
-        // Handle new attachments (from subcollection - includes WhatsApp media)
+        // Handle attachments (from subcollection - includes WhatsApp media and uploads)
         if (call.attachments && Array.isArray(call.attachments)) {
           console.log('📎 Attachments encontrados:', call.attachments);
-          console.log('→ URLs:', call.attachments.map((att: CallAttachment) => att.url || att.path));
           setAttachments(call.attachments);
         } else {
           console.log('📎 Nenhum attachment encontrado');
@@ -91,45 +75,6 @@ export default function EditCall() {
 
   const removeNewImage = (index: number) => {
     setNewImages(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const removeExistingImage = async (imageId: number | string) => {
-    try {
-      // Show confirmation dialog
-      const result = await Swal.fire({
-        title: 'Tem certeza?',
-        text: "Esta ação não poderá ser revertida!",
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#3085d6',
-        cancelButtonColor: '#d33',
-        confirmButtonText: 'Sim, deletar!',
-        cancelButtonText: 'Cancelar'
-      });
-
-      if (!result.isConfirmed) {
-        return;
-      }
-
-      await api.delete(API_CONFIG.ENDPOINTS.CALL_IMAGE(id!, imageId));
-      setImages(prev => prev.filter(img => img.id !== imageId));
-      await Swal.fire({
-        title: 'Sucesso!',
-        text: 'Imagem removida com sucesso.',
-        icon: 'success',
-        timer: 1500,
-        showConfirmButton: false
-      });
-    } catch (error) {
-      console.error('Erro ao remover imagem:', error);
-      Swal.fire({
-        title: 'Erro!',
-        text: 'Erro ao remover imagem. Tente novamente.',
-        icon: 'error',
-        timer: 1500,
-        showConfirmButton: false
-      });
-    }
   };
 
   const removeAttachment = async (attachmentId: string) => {
@@ -300,21 +245,18 @@ export default function EditCall() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Imagens e Anexos
+              Anexos
             </label>
             
-            {/* Attachments from WhatsApp / subcollection (new data model) */}
+            {/* Attachments (from subcollection - includes WhatsApp media and uploads) */}
             {attachments.length > 0 && (
               <div className="mb-4">
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  📎 Anexos ({attachments.length})
-                  <span className="text-xs text-gray-500 ml-2">
-                    (WhatsApp e uploads)
-                  </span>
+                  📎 Anexos existentes ({attachments.length})
                 </h3>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
                   {attachments.map((attachment) => {
-                    const attachmentUrl = attachment.url || getImageUrl(attachment.path);
+                    const attachmentUrl = attachment.url || attachment.path;
                     const isVideo = attachment.mimetype?.startsWith('video/');
                     const isImage = attachment.mimetype?.startsWith('image/');
                     
@@ -352,50 +294,13 @@ export default function EditCall() {
                             ? 'bg-green-500 text-white' 
                             : 'bg-blue-500 text-white'
                         }`}>
-                          {attachment.source === 'whatsapp' ? '📱' : '⬆️'}
+                          {attachment.source === 'whatsapp' ? '📱 WhatsApp' : '⬆️ Upload'}
                         </span>
                         {/* Delete button */}
                         <button
                           type="button"
                           onClick={() => removeAttachment(attachment.id)}
                           className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 focus:outline-none opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            
-            {/* Legacy images (old data model) */}
-            {images.length > 0 && (
-              <div className="mb-4">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">🖼️ Imagens cadastradas (legacy)</h3>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-                  {images.filter(image => image.path).map((image) => {
-                    const imageUrl = getImageUrl(image.path);
-                    return (
-                      <div key={image.id} className="relative">
-                        <img
-                          src={imageUrl}
-                          alt={image.filename}
-                          className="h-24 w-24 object-cover rounded-lg"
-                          onError={(e) => {
-                            console.error('Erro ao carregar imagem:', imageUrl);
-                            const target = e.target as HTMLImageElement;
-                            if (target.src !== 'https://via.placeholder.com/150?text=Erro+ao+carregar') {
-                              target.src = 'https://via.placeholder.com/150?text=Erro+ao+carregar';
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeExistingImage(Number(image.id))}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 focus:outline-none"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -497,4 +402,4 @@ export default function EditCall() {
       </div>
     </>
   );
-} 
+}

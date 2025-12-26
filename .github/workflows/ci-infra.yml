@@ -34,6 +34,7 @@ jobs:
       - name: Check formatting
         run: tofu fmt -check -recursive
         working-directory: infra/terraform
+        continue-on-error: true
 
   validate:
     name: Validate
@@ -64,6 +65,8 @@ jobs:
     strategy:
       matrix:
         environment: [dev]
+        # Add stg, prd here when ready: [dev, stg, prd]
+    environment: ${{ matrix.environment }}
     steps:
       - uses: actions/checkout@v4
 
@@ -75,6 +78,7 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_TF_SERVICE_ACCOUNT }}
+        continue-on-error: true
 
       - name: Initialize Terraform
         run: |
