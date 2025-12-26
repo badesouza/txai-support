@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import WhatsAppConnection from '../components/WhatsAppConnection';
+import WhatsAppSessionSelector from '../components/WhatsAppSessionSelector';
 
 const WhatsApp: React.FC = () => {
+  const [selectedSession, setSelectedSession] = useState<string>('');
+
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="sm:flex sm:items-center">
@@ -13,8 +16,17 @@ const WhatsApp: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-8">
-        <WhatsAppConnection />
+      {/* Session Selector */}
+      <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+        <WhatsAppSessionSelector 
+          onSessionChange={setSelectedSession}
+          selectedSession={selectedSession}
+        />
+      </div>
+
+      {/* Connection Status for selected session */}
+      <div className="mt-4">
+        {selectedSession && <WhatsAppConnection key={selectedSession} session={selectedSession} />}
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ cp backend/.env.example backend/.env.local
 #    - JWT_SECRET
 #    - ADMIN_DEFAULT_PASSWORD
 #    - WPPCONNECT_SECRET_KEY
+#    - WPPCONNECT_PLATFORM (Apple Silicon/arm64: defaults to linux/amd64)
 
 # 3. Start everything
 docker-compose up -d

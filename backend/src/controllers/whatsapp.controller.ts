@@ -188,4 +188,202 @@ export class WhatsAppController {
       res.status(500).json({ error: 'Error getting message history' });
     }
   }
+
+  // ========================================
+  // Multi-Session Management Endpoints
+  // ========================================
+
+  /**
+   * List all WhatsApp sessions.
+   * GET /api/whatsapp/sessions
+   */
+  async listSessions(req: Request, res: Response) {
+    try {
+      const result = await whatsappService.listSessions();
+      res.json(result);
+    } catch (error) {
+      console.error('Error listing sessions:', error);
+      res.status(500).json({ error: 'Error listing sessions' });
+    }
+  }
+
+  /**
+   * Create a new WhatsApp session.
+   * POST /api/whatsapp/sessions
+   * Body: { name: "session-name" }
+   */
+  async createSession(req: Request, res: Response) {
+    try {
+      const { name } = req.body;
+      
+      if (!name || typeof name !== 'string') {
+        return res.status(400).json({ error: 'Session name is required' });
+      }
+
+      const session = await whatsappService.createSession(name);
+      res.json({ success: true, session });
+    } catch (error) {
+      console.error('Error creating session:', error);
+      const message = error instanceof Error ? error.message : 'Error creating session';
+      res.status(500).json({ error: message });
+    }
+  }
+
+  /**
+   * Delete a WhatsApp session.
+   * DELETE /api/whatsapp/sessions/:session
+   */
+  async deleteSession(req: Request, res: Response) {
+    try {
+      const { session } = req.params;
+      
+      if (!session) {
+        return res.status(400).json({ error: 'Session name is required' });
+      }
+
+      await whatsappService.deleteSession(session);
+      res.json({ success: true, message: `Session ${session} deleted` });
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      res.status(500).json({ error: 'Error deleting session' });
+    }
+  }
+
+  /**
+   * Get info about a specific session.
+   * GET /api/whatsapp/sessions/:session
+   */
+  async getSessionInfo(req: Request, res: Response) {
+    try {
+      const { session } = req.params;
+      
+      if (!session) {
+        return res.status(400).json({ error: 'Session name is required' });
+      }
+
+      const info = await whatsappService.getSessionInfo(session);
+      res.json(info);
+    } catch (error) {
+      console.error('Error getting session info:', error);
+      res.status(500).json({ error: 'Error getting session info' });
+    }
+  }
+
+  /**
+   * Get QR code for a specific session.
+   * GET /api/whatsapp/sessions/:session/qrcode
+   */
+  async getSessionQrCode(req: Request, res: Response) {
+    try {
+      const { session } = req.params;
+      
+      if (!session) {
+        return res.status(400).json({ error: 'Session name is required' });
+      }
+
+      // First check connection status
+      const { isConnected } = await whatsappService.getConnectionStatus(session);
+      
+      if (isConnected) {
+        return res.json({ connected: true, qrCode: null, session });
+      }
+
+      const qrCode = await whatsappService.getQrCode(session);
+      
+      if (qrCode === null) {
+        return res.status(202).json({ connected: false, qrCode: null, session, state: 'GENERATING_QR' });
+      }
+      
+      res.json({ connected: false, qrCode, session, state: 'QR_READY' });
+    } catch (error) {
+      console.error('Error getting session QR code:', error);
+      res.status(500).json({ error: 'Error getting QR code' });
+    }
+  }
+
+  /**
+   * Get status of a specific session.
+   * GET /api/whatsapp/sessions/:session/status
+   */
+  async getSessionStatus(req: Request, res: Response) {
+    try {
+      const { session } = req.params;
+      
+      if (!session) {
+        return res.status(400).json({ error: 'Session name is required' });
+      }
+
+      const { isConnected, hasQRCode, qrCode } = await whatsappService.getConnectionStatus(session);
+      res.json({ session, connected: isConnected, hasQRCode, qrCode: qrCode || null });
+    } catch (error) {
+      console.error('Error getting session status:', error);
+      res.status(500).json({ error: 'Error getting session status' });
+    }
+  }
+
+  /**
+   * Initialize a specific session.
+   * POST /api/whatsapp/sessions/:session/initialize
+   */
+  async initializeSession(req: Request, res: Response) {
+    try {
+      const { session } = req.params;
+      
+      if (!session) {
+        return res.status(400).json({ error: 'Session name is required' });
+      }
+
+      await whatsappService.initialize(session);
+      res.json({ success: true, message: `Session ${session} initialization requested` });
+    } catch (error) {
+      console.error('Error initializing session:', error);
+      res.status(500).json({ error: 'Error initializing session' });
+    }
+  }
+
+  /**
+   * Disconnect a specific session.
+   * POST /api/whatsapp/sessions/:session/disconnect
+   */
+  async disconnectSession(req: Request, res: Response) {
+    try {
+      const { session } = req.params;
+      
+      if (!session) {
+        return res.status(400).json({ error: 'Session name is required' });
+      }
+
+      await whatsappService.disconnect(session);
+      res.json({ success: true, message: `Session ${session} disconnected` });
+    } catch (error) {
+      console.error('Error disconnecting session:', error);
+      res.status(500).json({ error: 'Error disconnecting session' });
+    }
+  }
+
+  /**
+   * Send message through a specific session.
+   * POST /api/whatsapp/sessions/:session/send-message
+   * Body: { phone: "...", message: "..." }
+   */
+  async sendMessageViaSession(req: Request, res: Response) {
+    try {
+      const { session } = req.params;
+      const { phone, message } = req.body;
+      
+      if (!session) {
+        return res.status(400).json({ error: 'Session name is required' });
+      }
+      
+      if (!phone || !message) {
+        return res.status(400).json({ error: 'Phone and message are required' });
+      }
+
+      await whatsappService.sendMessage(phone, message, session);
+      res.json({ success: true, message: 'Message sent successfully', session });
+    } catch (error) {
+      console.error('Error sending message via session:', error);
+      res.status(500).json({ error: 'Error sending message' });
+    }
+  }
 }

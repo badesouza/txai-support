@@ -1,4 +1,9 @@
-import { CallRepository, UserRepository, WhatsAppMessageRepository } from '../../repositories';
+import { 
+  CallRepository, 
+  UserRepository, 
+  CallMessageRepository,
+  CallAttachmentRepository,
+} from '../../repositories';
 import { storage } from '../../storage/storage';
 import type { WhatsAppMessage } from './whatsapp.types';
 
@@ -10,21 +15,43 @@ interface MediaDownloadResult {
 interface WhatsAppMessageProcessorDeps {
   downloadMediaByMessageId: (messageId: string) => Promise<MediaDownloadResult | null>;
   sendText: (phone: string, message: string) => Promise<void>;
+  sessionName?: string;
 }
 
 export class WhatsAppMessageProcessor {
   private readonly pendingCallLocations: Map<string, { userId: string; timestamp: number }> = new Map();
+  private readonly sessionName: string;
 
-  constructor(private readonly deps: WhatsAppMessageProcessorDeps) {}
+  constructor(private readonly deps: WhatsAppMessageProcessorDeps) {
+    this.sessionName = deps.sessionName || process.env.WPPCONNECT_SESSION || 'txai-whatsapp';
+  }
 
   /** Handle an inbound WhatsApp message and apply the call automation rules. */
   async handleIncomingMessage(message: WhatsAppMessage): Promise<void> {
     try {
+      console.log('📨 [WhatsAppMessageProcessor] Incoming message received:');
+      console.log(`   - Raw "from" field: "${message.from}"`);
+      console.log(`   - Message type: "${message.type}"`);
+      console.log(`   - Message body preview: "${String(message.body ?? '').slice(0, 50)}..."`);
+      console.log(`   - Session: "${this.sessionName}"`);
+
       const phone = message.from.replace('@c.us', '');
+      console.log(`   - Extracted phone (after removing @c.us): "${phone}"`);
+
+      console.log('🔍 [WhatsAppMessageProcessor] Looking up user by phone...');
       const user = await UserRepository.findByPhone(phone);
       const userExists = Boolean(user);
 
-      console.log('👤 User exists:', userExists);
+      console.log(`👤 [WhatsAppMessageProcessor] User lookup result:`);
+      console.log(`   - User exists: ${userExists}`);
+      if (user) {
+        console.log(`   - User ID: ${user.id}`);
+        console.log(`   - User name: ${user.name}`);
+        console.log(`   - User phone in DB: "${user.phone}"`);
+      } else {
+        console.log(`   ⚠️ No user found for phone "${phone}" - message will be processed without user association`);
+      }
+
       await this.processMessage(message, userExists, user?.id);
     } catch (error) {
       console.error('❌ Error handling incoming message:', error);
@@ -99,6 +126,12 @@ export class WhatsAppMessageProcessor {
   /** Handle image messages and link the image to the user's last active call. */
   private async handleImageMessage(phone: string, userExists: boolean, userId?: string, message?: WhatsAppMessage): Promise<void> {
     try {
+      console.log('🖼️ [handleImageMessage] Processing image message:');
+      console.log(`   - Phone: ${phone}`);
+      console.log(`   - User exists: ${userExists}`);
+      console.log(`   - User ID: ${userId}`);
+      console.log(`   - Message ID: ${message?.id}`);
+
       if (!userExists || !userId || !message) {
         console.log('ℹ️ Image ignored: user not registered or invalid message.');
         return;
@@ -109,21 +142,33 @@ export class WhatsAppMessageProcessor {
         console.log('❌ No active call found for user');
         return;
       }
+      console.log(`   - Found active call: ${lastCall.id} (${lastCall.title})`);
 
       const saved = await this.downloadAndSaveMedia(message, lastCall.id, 'image');
+      console.log(`   - Media saved result:`, saved);
 
-      await WhatsAppMessageRepository.create({
-        phone,
-        message: '[Imagem]',
+      // Create attachment and message in subcollections
+      let attachmentId: string | undefined;
+      if (saved) {
+        attachmentId = await this.createAttachmentInSubcollection(lastCall.id, saved, 'image');
+        console.log(`   - Created attachment in subcollection: ${attachmentId}`);
+      } else {
+        console.log(`   ⚠️ No media saved - attachment will be empty`);
+      }
+
+      const messageDoc = await CallMessageRepository.create(lastCall.id, {
+        content: '[Imagem]',
         messageType: 'image',
-        userId,
-        callId: lastCall.id,
-        isFromUser: true,
-        mediaPath: saved?.relativePath,
-        mediaFilename: saved?.filename,
-        mediaMimetype: saved?.mimetype,
+        source: 'whatsapp',
+        sessionName: this.sessionName,
+        direction: 'inbound',
+        senderPhone: phone,
+        attachmentId,
+        externalMessageId: typeof message.id === 'string' ? message.id : undefined,
       });
+      console.log(`   - Created message in subcollection: ${messageDoc.id}`);
 
+      await CallRepository.incrementMessageCount(lastCall.id, '[Imagem]');
       console.log('✅ Image processed and linked to call:', lastCall.id);
     } catch (error) {
       console.error('❌ Error handling image message:', error);
@@ -146,17 +191,19 @@ export class WhatsAppMessageProcessor {
 
       const saved = await this.downloadAndSaveMedia(message, lastCall.id, 'video');
 
-      await WhatsAppMessageRepository.create({
-        phone,
-        message: '[Vídeo]',
+      // Create attachment and message in subcollections
+      const attachmentId = saved ? await this.createAttachmentInSubcollection(lastCall.id, saved, 'video') : undefined;
+      await CallMessageRepository.create(lastCall.id, {
+        content: '[Vídeo]',
         messageType: 'video',
-        userId,
-        callId: lastCall.id,
-        isFromUser: true,
-        mediaPath: saved?.relativePath,
-        mediaFilename: saved?.filename,
-        mediaMimetype: saved?.mimetype,
+        source: 'whatsapp',
+        sessionName: this.sessionName,
+        direction: 'inbound',
+        senderPhone: phone,
+        attachmentId,
+        externalMessageId: typeof message.id === 'string' ? message.id : undefined,
       });
+      await CallRepository.incrementMessageCount(lastCall.id, '[Vídeo]');
 
       console.log('✅ Video processed and linked to call:', lastCall.id);
     } catch (error) {
@@ -208,12 +255,6 @@ export class WhatsAppMessageProcessor {
         buffer: mediaData,
         filename,
         contentType: mimetype || (kind === 'video' ? 'video/mp4' : 'image/jpeg'),
-      });
-
-      await CallRepository.addImage({
-        callId,
-        filename,
-        path: relativePath,
       });
 
       console.log(`✅ ${kind} saved:`, filename);
@@ -294,14 +335,17 @@ export class WhatsAppMessageProcessor {
         userId,
       });
 
-      await WhatsAppMessageRepository.create({
-        phone,
-        message: location,
+      // Create message in subcollection
+      await CallMessageRepository.create(call.id, {
+        content: location,
         messageType: 'text',
-        userId,
-        callId: call.id,
-        isFromUser: true,
+        source: 'whatsapp',
+        sessionName: this.sessionName,
+        direction: 'inbound',
+        senderPhone: phone,
+        senderName: user?.name,
       });
+      await CallRepository.incrementMessageCount(call.id, location);
 
       console.log('✅ Call created with location:', location);
     } catch (error) {
@@ -318,14 +362,18 @@ export class WhatsAppMessageProcessor {
         return;
       }
 
-      await WhatsAppMessageRepository.create({
-        phone,
-        message: messageBody,
+      // Create message in subcollection
+      const user = await UserRepository.findById(userId);
+      await CallMessageRepository.create(lastCall.id, {
+        content: messageBody,
         messageType: 'text',
-        userId,
-        callId: lastCall.id,
-        isFromUser: true,
+        source: 'whatsapp',
+        sessionName: this.sessionName,
+        direction: 'inbound',
+        senderPhone: phone,
+        senderName: user?.name,
       });
+      await CallRepository.incrementMessageCount(lastCall.id, messageBody);
 
       console.log('✅ Call updated with new message:', lastCall.id);
     } catch (error) {
@@ -342,20 +390,38 @@ export class WhatsAppMessageProcessor {
     try {
       await this.deps.sendText(phone, message);
 
-      await WhatsAppMessageRepository.create({
-        phone,
-        message,
-        messageType: 'text',
-        isFromUser: false,
-        callId: meta?.callId,
-        userId: meta?.userId,
-      });
+      // Create message in subcollection if callId is present
+      if (meta?.callId) {
+        await CallMessageRepository.create(meta.callId, {
+          content: message,
+          messageType: 'text',
+          source: 'system',
+          sessionName: this.sessionName,
+          direction: 'outbound',
+        });
+        await CallRepository.incrementMessageCount(meta.callId, message);
+      }
 
       console.log('✅ Auto-reply sent successfully');
     } catch (error) {
       console.error('❌ Error sending auto-reply:', error);
     }
   }
+
+  /** Helper to create an attachment in the new subcollection. */
+  private async createAttachmentInSubcollection(
+    callId: string,
+    saved: { relativePath: string; filename: string; mimetype: string },
+    kind: 'image' | 'video'
+  ): Promise<string> {
+    const attachment = await CallAttachmentRepository.create(callId, {
+      filename: saved.filename,
+      path: saved.relativePath,
+      mimetype: saved.mimetype,
+      source: 'whatsapp',
+      sessionName: this.sessionName,
+    });
+    await CallRepository.incrementAttachmentCount(callId);
+    return attachment.id;
+  }
 }
-
-

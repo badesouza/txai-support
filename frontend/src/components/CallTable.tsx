@@ -8,22 +8,63 @@ import { API_CONFIG, getImageUrl } from '../config/api';
 import Swal from 'sweetalert2';
 
 interface Call {
-  id: number;
+  id: number | string;
   title: string;
   description: string;
   status: string;
   priority: string;
   createdAt: string;
-  user: {
-    id: number;
+  updatedAt?: string;
+  user?: {
+    id: number | string;
     name: string;
     email: string;
     phone: string;
-  };
+  } | null;
+  // Denormalized user fields (new data model)
+  userName?: string;
+  userEmail?: string;
+  userPhone?: string;
   images?: Array<{
-    id: number;
+    id: number | string;
     filename: string;
     path: string;
+  }>;
+  // New aggregated fields
+  messageCount?: number;
+  attachmentCount?: number;
+  lastActivityAt?: string;
+  lastMessagePreview?: string;
+  // New subcollection data (when details=true)
+  messages?: Array<{
+    id: string;
+    content: string;
+    messageType: string;
+    source: string;
+    sessionName?: string;
+    direction: string;
+    senderPhone?: string;
+    senderName?: string;
+    createdAt: string;
+  }>;
+  attachments?: Array<{
+    id: string;
+    filename: string;
+    path: string;
+    mimetype: string;
+    source: string;
+    url?: string;
+    createdAt: string;
+  }>;
+  history?: Array<{
+    id: string;
+    type: string;
+    oldStatus?: string;
+    newStatus?: string;
+    userId: string;
+    userName?: string;
+    note?: string;
+    createdAt: string;
   }>;
 }
 
@@ -55,12 +96,12 @@ export default function CallTable() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const [selectedImages, setSelectedImages] = useState<Array<{ id: number; path: string; filename?: string }> | null>(null);
+  const [selectedImages, setSelectedImages] = useState<Array<{ id: string | number; path: string; filename?: string }> | null>(null);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
   const [historyEntries, setHistoryEntries] = useState<CallStatusHistoryEntry[]>([]);
   const [historyErrorMessage, setHistoryErrorMessage] = useState<string | null>(null);
-  const [historyCallId, setHistoryCallId] = useState<number | null>(null);
+  const [historyCallId, setHistoryCallId] = useState<string | number | null>(null);
   const [waLoading, setWaLoading] = useState<boolean>(false);
   const [waErrorMessage, setWaErrorMessage] = useState<string | null>(null);
   const [waMessages, setWaMessages] = useState<WhatsAppHistoryMessage[]>([]);
@@ -117,7 +158,7 @@ export default function CallTable() {
 
   const isMediaType = (type: string) => type === 'image' || type === 'video';
 
-  const fetchWhatsAppHistory = async (callId: number) => {
+  const fetchWhatsAppHistory = async (callId: string | number) => {
     setWaLoading(true);
     setWaErrorMessage(null);
     try {
@@ -241,11 +282,11 @@ export default function CallTable() {
     return () => clearTimeout(delayDebounceFn);
   }, [currentPage, searchTerm]);
 
-  const handleEdit = (callId: number) => {
+  const handleEdit = (callId: string | number) => {
     navigate(`/calls/edit/${callId}`);
   };
 
-  const handleDelete = async (callId: number) => {
+  const handleDelete = async (callId: string | number) => {
     const result = await Swal.fire({
       title: 'Tem certeza?',
       text: "Esta ação não poderá ser revertida!",
@@ -320,8 +361,8 @@ export default function CallTable() {
       dataIndex: 'id',
       key: 'id',
       width: 80,
-      render: (id: number) => `#${id}`,
-      sorter: (a, b) => a.id - b.id,
+      render: (id: string | number) => `#${typeof id === 'string' ? id.substring(0, 8) : id}`,
+      sorter: (a, b) => String(a.id).localeCompare(String(b.id)),
     },
     {
       title: 'Local',
@@ -339,9 +380,9 @@ export default function CallTable() {
       key: 'user',
       render: (_, record) => (
         <div>
-          <div className="text-sm font-medium">{record.user.name}</div>
-          <div className="text-xs text-gray-500">{record.user.email}</div>
-          <div className="text-xs text-gray-500">{record.user.phone}</div>
+          <div className="text-sm font-medium">{record.user?.name || record.userName || 'N/A'}</div>
+          <div className="text-xs text-gray-500">{record.user?.email || record.userEmail || '-'}</div>
+          <div className="text-xs text-gray-500">{record.user?.phone || record.userPhone || '-'}</div>
         </div>
       ),
     },
@@ -380,24 +421,45 @@ export default function CallTable() {
       onFilter: (value, record) => record.priority === value,
     },
     {
-      title: 'Imagens',
-      key: 'images',
-      width: 100,
-      render: (_, record) => (
-        <div className="flex items-center">
-          {record.images && record.images.length > 0 ? (
-            <Button
-              type="link"
-              onClick={() => setSelectedImages(record.images || [])}
-              className="p-0"
-            >
-              <Image.PreviewGroup>
+      title: 'Anexos',
+      key: 'attachments',
+      width: 120,
+      render: (_, record) => {
+        // Combine legacy images and new attachments
+        const legacyImages = (record.images || []).map(img => ({
+          id: img.id,
+          path: img.path,
+          filename: img.filename,
+          url: img.path, // Will use getImageUrl
+          source: 'upload' as const,
+        }));
+        const newAttachments = (record.attachments || []).map(att => ({
+          id: att.id,
+          path: att.path,
+          filename: att.filename,
+          url: att.url || att.path,
+          source: att.source,
+          mimetype: att.mimetype,
+        }));
+        const allMedia = [...legacyImages, ...newAttachments];
+        const totalCount = allMedia.length + (record.attachmentCount || 0) - newAttachments.length;
+        
+        return (
+          <div className="flex items-center">
+            {allMedia.length > 0 || (record.attachmentCount && record.attachmentCount > 0) ? (
+              <Button
+                type="link"
+                onClick={() => setSelectedImages(allMedia.map(m => ({ id: m.id, path: m.url || m.path, filename: m.filename })))}
+                className="p-0"
+              >
                 <div className="flex -space-x-2">
-                  {record.images.slice(0, 3).filter(img => img.path).map((image, index) => (
-                    isLikelyVideo(image) ? (
+                  {allMedia.slice(0, 3).filter(m => m.path || m.url).map((media, index) => {
+                    const isVideo = media.mimetype?.startsWith('video/') || isLikelyVideo(media);
+                    const isWhatsApp = media.source === 'whatsapp';
+                    return isVideo ? (
                       <div
-                        key={image.id}
-                        className="w-8 h-8 rounded-full border-2 border-white bg-gray-200 flex items-center justify-center"
+                        key={media.id}
+                        className={`w-8 h-8 rounded-full border-2 ${isWhatsApp ? 'border-green-400' : 'border-white'} bg-gray-200 flex items-center justify-center`}
                         style={{ zIndex: 3 - index }}
                         title="Vídeo"
                       >
@@ -405,27 +467,31 @@ export default function CallTable() {
                       </div>
                     ) : (
                       <img
-                        key={image.id}
-                        src={getImageUrl(image.path)}
-                        alt={`Imagem ${index + 1}`}
-                        className="w-8 h-8 rounded-full border-2 border-white object-cover"
+                        key={media.id}
+                        src={media.url?.startsWith('http') ? media.url : getImageUrl(media.path)}
+                        alt={`Mídia ${index + 1}`}
+                        className={`w-8 h-8 rounded-full border-2 ${isWhatsApp ? 'border-green-400' : 'border-white'} object-cover`}
                         style={{ zIndex: 3 - index }}
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = 'https://via.placeholder.com/32?text=!';
+                        }}
                       />
-                    )
-                  ))}
-                  {record.images.length > 3 && (
+                    );
+                  })}
+                  {totalCount > 3 && (
                     <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs border-2 border-white">
-                      +{record.images.length - 3}
+                      +{totalCount - 3}
                     </div>
                   )}
                 </div>
-              </Image.PreviewGroup>
-            </Button>
-          ) : (
-            <span className="text-gray-400">-</span>
-          )}
-        </div>
-      ),
+              </Button>
+            ) : (
+              <span className="text-gray-400">-</span>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: 'Ações',

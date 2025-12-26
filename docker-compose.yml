@@ -80,6 +80,8 @@ services:
   # =============================================================================
   wppconnect-server:
     image: wppconnect/server-cli:latest
+    # wppconnect/server-cli is amd64-only; allow override if you have a native build.
+    platform: ${WPPCONNECT_PLATFORM:-linux/amd64}
     container_name: txai-wppconnect-server
     restart: unless-stopped
     ports:
@@ -153,7 +155,7 @@ services:
       # Seeding (password from .env file - NOT committed)
       ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-admin123}
     ports:
-      - "3001:3001"
+      - "${BACKEND_PORT:-3001}:3001"
     # No volume mounts needed - all state is external:
     # - Files → GCS (via STORAGE_DRIVER=gcs)
     # - WhatsApp sessions → Redis (via WHATSAPP_TOKEN_STORE=redis)
@@ -182,7 +184,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: http://localhost:3001/api
+        REACT_APP_API_URL: http://localhost:${BACKEND_PORT:-3001}/api
     container_name: txai-frontend
     restart: unless-stopped
     ports:

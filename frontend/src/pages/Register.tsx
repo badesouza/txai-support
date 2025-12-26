@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import api from '../config/axios';
 import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
+import InputMask from 'react-input-mask';
 
 interface FormData {
   name: string;
@@ -59,11 +60,12 @@ export default function Register() {
       }).then(() => {
         navigate('/login');
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro no registro:', error);
+      const errorMessage = error.response?.data?.message || 'Erro ao registrar usuário. Tente novamente.';
       Swal.fire({
         title: 'Erro!',
-        text: 'Erro ao registrar usuário. Tente novamente.',
+        text: errorMessage,
         icon: 'error',
         confirmButtonText: 'OK'
       });
@@ -114,16 +116,23 @@ export default function Register() {
               <label htmlFor="phone" className="sr-only">
                 Telefone
               </label>
-              <input
-                id="phone"
-                name="phone"
-                type="text"
-                required
+              <InputMask
+                mask="(99) 99999-9999"
                 value={formData.phone}
                 onChange={handleChange}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white dark:bg-gray-700 focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
-                placeholder="Telefone"
-              />
+              >
+                {(inputProps: React.InputHTMLAttributes<HTMLInputElement>) => (
+                  <input
+                    {...inputProps}
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    required
+                    className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 text-gray-900 dark:text-white dark:bg-gray-700 focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
+                    placeholder="(11) 98765-4321"
+                  />
+                )}
+              </InputMask>
             </div>
             <div>
               <label htmlFor="password" className="sr-only">

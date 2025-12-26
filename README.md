@@ -14,10 +14,10 @@ cp env.example .env
 # - JWT_SECRET
 # - ADMIN_DEFAULT_PASSWORD (for initial admin user)
 # - WPPCONNECT_SECRET_KEY / WPPCONNECT_WEBHOOK_SECRET (WhatsApp, used by docker-compose)
+# - WPPCONNECT_PLATFORM (Apple Silicon/arm64: defaults to linux/amd64)
 ```
 
 ### Start Locally (Docker Compose)
-
 ```bash
 docker-compose up -d
 ```

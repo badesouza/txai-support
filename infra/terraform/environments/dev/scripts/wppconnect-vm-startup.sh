@@ -157,6 +157,7 @@ cat > "$CONFIG_DIR/config.json" << EOF
     "logger": ["console", "file"]
   },
   "createOptions": {
+    "autoClose": 60000,
     "browserArgs": [
       "--no-sandbox",
       "--disable-setuid-sandbox",

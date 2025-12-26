@@ -5,9 +5,19 @@ import { API_CONFIG, getImageUrl } from '../config/api';
 import Swal from 'sweetalert2';
 
 interface CallImage {
-  id: number;
+  id: number | string;
   filename: string;
   path: string;
+}
+
+interface CallAttachment {
+  id: string;
+  filename: string;
+  path: string;
+  url?: string;
+  mimetype: string;
+  source: 'upload' | 'whatsapp';
+  createdAt: string;
 }
 
 export default function EditCall() {
@@ -21,6 +31,7 @@ export default function EditCall() {
   });
   const [initialStatus, setInitialStatus] = useState('');
   const [images, setImages] = useState<CallImage[]>([]);
+  const [attachments, setAttachments] = useState<CallAttachment[]>([]);
   const [newImages, setNewImages] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +39,7 @@ export default function EditCall() {
     const fetchCall = async () => {
       try {
         const response = await api.get(API_CONFIG.ENDPOINTS.CALL_BY_ID(id!));
-        console.log('Resposta da API:', response.data);
+        console.log('📦 Resposta da API:', response.data);
         const call = response.data;
         setFormData({
           title: call.title,
@@ -37,13 +48,23 @@ export default function EditCall() {
           priority: call.priority
         });
         setInitialStatus(call.status);
+        
+        // Handle legacy images
         if (call.images && Array.isArray(call.images)) {
-          console.log('Imagens encontradas:', call.images);
-          console.log('→ path de cada imagem:', call.images.map((img: any) => img.path));
+          console.log('🖼️ Imagens (legacy) encontradas:', call.images);
           setImages(call.images);
         } else {
-          console.log('Nenhuma imagem encontrada ou formato inválido');
           setImages([]);
+        }
+        
+        // Handle new attachments (from subcollection - includes WhatsApp media)
+        if (call.attachments && Array.isArray(call.attachments)) {
+          console.log('📎 Attachments encontrados:', call.attachments);
+          console.log('→ URLs:', call.attachments.map((att: CallAttachment) => att.url || att.path));
+          setAttachments(call.attachments);
+        } else {
+          console.log('📎 Nenhum attachment encontrado');
+          setAttachments([]);
         }
       } catch (error) {
         console.error('Erro ao buscar chamado:', error);
@@ -241,17 +262,74 @@ export default function EditCall() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Imagens
+              Imagens e Anexos
             </label>
             
-            {/* Imagens existentes */}
+            {/* Attachments from WhatsApp / subcollection (new data model) */}
+            {attachments.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  📎 Anexos ({attachments.length})
+                  <span className="text-xs text-gray-500 ml-2">
+                    (WhatsApp e uploads)
+                  </span>
+                </h3>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+                  {attachments.map((attachment) => {
+                    const attachmentUrl = attachment.url || getImageUrl(attachment.path);
+                    const isVideo = attachment.mimetype?.startsWith('video/');
+                    const isImage = attachment.mimetype?.startsWith('image/');
+                    
+                    return (
+                      <div key={attachment.id} className="relative group">
+                        {isImage ? (
+                          <img
+                            src={attachmentUrl}
+                            alt={attachment.filename}
+                            className="h-24 w-24 object-cover rounded-lg"
+                            onError={(e) => {
+                              console.error('Erro ao carregar attachment:', attachmentUrl);
+                              const target = e.target as HTMLImageElement;
+                              if (!target.src.includes('placeholder')) {
+                                target.src = 'https://via.placeholder.com/150?text=Erro';
+                              }
+                            }}
+                          />
+                        ) : isVideo ? (
+                          <div className="h-24 w-24 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                            <video 
+                              src={attachmentUrl} 
+                              className="h-24 w-24 object-cover rounded-lg"
+                              preload="metadata"
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-24 w-24 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                            <span className="text-xs text-gray-500 text-center px-1">{attachment.filename}</span>
+                          </div>
+                        )}
+                        {/* Badge showing source */}
+                        <span className={`absolute bottom-1 left-1 text-[10px] px-1 py-0.5 rounded ${
+                          attachment.source === 'whatsapp' 
+                            ? 'bg-green-500 text-white' 
+                            : 'bg-blue-500 text-white'
+                        }`}>
+                          {attachment.source === 'whatsapp' ? '📱' : '⬆️'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            
+            {/* Legacy images (old data model) */}
             {images.length > 0 && (
               <div className="mb-4">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Imagens cadastradas</h3>
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">🖼️ Imagens cadastradas (legacy)</h3>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
                   {images.filter(image => image.path).map((image) => {
                     const imageUrl = getImageUrl(image.path);
-                    console.log('URL da imagem:', imageUrl);
                     return (
                       <div key={image.id} className="relative">
                         <img
@@ -268,7 +346,7 @@ export default function EditCall() {
                         />
                         <button
                           type="button"
-                          onClick={() => removeExistingImage(image.id)}
+                          onClick={() => removeExistingImage(Number(image.id))}
                           className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 focus:outline-none"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

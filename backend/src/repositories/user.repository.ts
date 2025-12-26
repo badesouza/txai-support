@@ -57,39 +57,90 @@ export class UserRepository {
 
   /**
    * Find user by phone (with multiple formats)
+   * Handles Brazilian phone number variations including:
+   * - With/without country code (55)
+   * - With/without mobile prefix (9)
+   * - Old 8-digit mobile format vs new 9-digit format
    */
   static async findByPhone(phone: string): Promise<User | null> {
     const normalizedPhone = phone.replace(/\D/g, '');
     
-    // Try exact match first
-    let snapshot = await collection
-      .where('phone', '==', phone)
-      .limit(1)
-      .get();
+    console.log(`📞 [UserRepository.findByPhone] Searching for phone:`);
+    console.log(`   - Input phone: "${phone}"`);
+    console.log(`   - Normalized (digits only): "${normalizedPhone}"`);
     
-    if (!snapshot.empty) {
-      return this.docToUser(snapshot.docs[0]);
+    // Build list of formats to try
+    const formatsToTry: { label: string; value: string }[] = [
+      { label: 'exact', value: phone },
+      { label: 'normalized', value: normalizedPhone },
+      { label: 'with 55 prefix', value: `55${normalizedPhone}` },
+    ];
+
+    // Handle Brazilian number variations
+    if (normalizedPhone.startsWith('55') && normalizedPhone.length >= 12) {
+      const withoutCountry = normalizedPhone.slice(2); // Remove 55
+      formatsToTry.push({ label: 'without 55 prefix', value: withoutCountry });
+
+      // Brazilian mobile number fix: WhatsApp sometimes sends without the 9th digit
+      // Format: 55 + DDD(2) + mobile(8 or 9 digits)
+      // If we have 55 + 10 digits (old format), try adding 9 after DDD
+      if (withoutCountry.length === 10) {
+        const ddd = withoutCountry.slice(0, 2);
+        const number = withoutCountry.slice(2);
+        // Add '9' prefix to make it 9-digit mobile
+        const withNine = `55${ddd}9${number}`;
+        formatsToTry.push({ label: 'BR mobile with 9 added', value: withNine });
+        formatsToTry.push({ label: 'BR mobile with 9 added (no 55)', value: `${ddd}9${number}` });
+      }
+      
+      // If we have 55 + 11 digits (new format), try without the 9
+      if (withoutCountry.length === 11 && withoutCountry[2] === '9') {
+        const ddd = withoutCountry.slice(0, 2);
+        const numberWithoutNine = withoutCountry.slice(3);
+        const withoutNine = `55${ddd}${numberWithoutNine}`;
+        formatsToTry.push({ label: 'BR mobile without 9', value: withoutNine });
+      }
+    }
+    
+    // Handle case where input doesn't have country code
+    if (!normalizedPhone.startsWith('55') && normalizedPhone.length >= 10) {
+      // Input: DDD(2) + mobile(8 or 9 digits)
+      if (normalizedPhone.length === 10) {
+        const ddd = normalizedPhone.slice(0, 2);
+        const number = normalizedPhone.slice(2);
+        formatsToTry.push({ label: 'with 55 and 9 added', value: `55${ddd}9${number}` });
+      }
     }
 
-    // Try normalized
-    snapshot = await collection
-      .where('phone', '==', normalizedPhone)
-      .limit(1)
-      .get();
+    // Remove duplicates
+    const uniqueFormats = formatsToTry.filter((f, i, arr) => 
+      arr.findIndex(x => x.value === f.value) === i
+    );
+
+    console.log(`   - Formats to try (${uniqueFormats.length}): ${uniqueFormats.map(f => `${f.label}="${f.value}"`).join(', ')}`);
     
-    if (!snapshot.empty) {
-      return this.docToUser(snapshot.docs[0]);
+    for (const format of uniqueFormats) {
+      console.log(`   🔍 Trying ${format.label}: "${format.value}"...`);
+      const snapshot = await collection
+        .where('phone', '==', format.value)
+        .limit(1)
+        .get();
+      
+      if (!snapshot.empty) {
+        const user = this.docToUser(snapshot.docs[0]);
+        console.log(`   ✅ FOUND user with ${format.label}! User: ${user.name} (${user.email}), phone in DB: "${user.phone}"`);
+        return user;
+      }
+      console.log(`   ❌ No match for ${format.label}`);
     }
 
-    // Try with country code
-    snapshot = await collection
-      .where('phone', '==', `55${normalizedPhone}`)
-      .limit(1)
-      .get();
-    
-    if (!snapshot.empty) {
-      return this.docToUser(snapshot.docs[0]);
-    }
+    // Debug: List all users and their phones for comparison
+    console.log(`   ⚠️ No user found. Listing all users' phones for debugging:`);
+    const allUsersSnapshot = await collection.limit(20).get();
+    allUsersSnapshot.docs.forEach(doc => {
+      const data = doc.data();
+      console.log(`      - User "${data.name}": phone="${data.phone}"`);
+    });
 
     return null;
   }

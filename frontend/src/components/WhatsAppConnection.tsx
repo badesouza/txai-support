@@ -5,7 +5,19 @@ import api from '../config/axios';
 
 const { Text } = Typography;
 
-const WhatsAppConnection: React.FC = () => {
+interface WhatsAppConnectionProps {
+  /** Optional session name. If not provided, uses the default session. */
+  session?: string;
+}
+
+const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
+  // Build the API path prefix based on session
+  const getApiPath = useCallback((endpoint: string) => {
+    if (session) {
+      return `/whatsapp/sessions/${session}/${endpoint}`;
+    }
+    return `/whatsapp/${endpoint}`;
+  }, [session]);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -36,7 +48,7 @@ const WhatsAppConnection: React.FC = () => {
     }
     inFlightQrRef.current = true;
     try {
-      const response = await api.get('/whatsapp/qrcode', { validateStatus: () => true });
+      const response = await api.get(getApiPath('qrcode'), { validateStatus: () => true });
       if (response.status === 202) {
         if (mountedRef.current) setQrCode(null);
         return null;
@@ -68,7 +80,7 @@ const WhatsAppConnection: React.FC = () => {
     } finally {
       inFlightQrRef.current = false;
     }
-  }, []);
+  }, [getApiPath]);
 
   // Check status - retorna um objeto com resultado para uso pelos chamadores
   const checkStatus = useCallback(async (): Promise<{ connected: boolean; phone: string | null } | null> => {
@@ -77,7 +89,7 @@ const WhatsAppConnection: React.FC = () => {
     }
     inFlightStatusRef.current = true;
     try {
-      const response = await api.get('/whatsapp/status');
+      const response = await api.get(getApiPath('status'));
       const { connected = false, phone = null } = response?.data ?? {};
 
       if (!mountedRef.current) return { connected, phone };
@@ -102,7 +114,7 @@ const WhatsAppConnection: React.FC = () => {
       inFlightStatusRef.current = false;
       if (mountedRef.current) setCheckingStatus(false);
     }
-  }, [requestQrCode, stopPolling]);
+  }, [getApiPath, requestQrCode, stopPolling]);
 
   // Start polling with 10 second interval
   const startPolling = useCallback(() => {
@@ -117,7 +129,7 @@ const WhatsAppConnection: React.FC = () => {
   const disconnectWhatsApp = async () => {
     setLoading(true);
     try {
-      await api.post('/whatsapp/disconnect');
+      await api.post(getApiPath('disconnect'));
 
       // Forçar atualização de estado a partir do resultado real
       const status = await checkStatus();
@@ -160,8 +172,13 @@ const WhatsAppConnection: React.FC = () => {
 
   // Initial mount: verificar status e iniciar polling automático
   useEffect(() => {
-    if (mountedRef.current) return; // Prevent double execution
     mountedRef.current = true;
+
+    // Reset state when session changes
+    setQrCode(null);
+    setIsConnected(false);
+    setConnectedPhone(null);
+    setCheckingStatus(true);
 
     (async () => {
       const status = await checkStatus();
@@ -174,9 +191,7 @@ const WhatsAppConnection: React.FC = () => {
       mountedRef.current = false;
       stopPolling();
     };
-    // Intencional: deps vazias para rodar apenas no mount
-    // checkStatus está memoizado; se você preferir redeclarar ao mudar deps, ajuste aqui.
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session]); // Re-run when session changes  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (checkingStatus) {
     return (

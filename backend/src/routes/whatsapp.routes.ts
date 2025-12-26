@@ -278,4 +278,295 @@ router.post('/send-image', whatsappController.sendImage.bind(whatsappController)
  */
 router.get('/message-history', whatsappController.getMessageHistory.bind(whatsappController));
 
+// ========================================
+// Multi-Session Management Routes
+// ========================================
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions:
+ *   get:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: List all WhatsApp sessions
+ *     description: Get a list of all active WhatsApp sessions with their status
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of sessions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 sessions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       name:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                         enum: [CONNECTED, DISCONNECTED, QR_CODE, STARTING, UNKNOWN]
+ *                       phone:
+ *                         type: string
+ *                         nullable: true
+ *                 defaultSession:
+ *                   type: string
+ *       500:
+ *         description: Server error
+ */
+router.get('/sessions', whatsappController.listSessions.bind(whatsappController));
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions:
+ *   post:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: Create a new WhatsApp session
+ *     description: Create a new session that can connect to a different WhatsApp account
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: Unique session name (alphanumeric, hyphens, underscores)
+ *                 example: "support-line"
+ *     responses:
+ *       200:
+ *         description: Session created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 session:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                     phone:
+ *                       type: string
+ *                       nullable: true
+ *       400:
+ *         description: Invalid session name
+ *       500:
+ *         description: Server error
+ */
+router.post('/sessions', whatsappController.createSession.bind(whatsappController));
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions/{session}:
+ *   get:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: Get session info
+ *     description: Get detailed information about a specific session
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: session
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session name
+ *     responses:
+ *       200:
+ *         description: Session info
+ *       400:
+ *         description: Invalid session
+ *       500:
+ *         description: Server error
+ */
+router.get('/sessions/:session', whatsappController.getSessionInfo.bind(whatsappController));
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions/{session}:
+ *   delete:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: Delete a session
+ *     description: Close and remove a WhatsApp session
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: session
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session name to delete
+ *     responses:
+ *       200:
+ *         description: Session deleted
+ *       400:
+ *         description: Invalid session
+ *       500:
+ *         description: Server error
+ */
+router.delete('/sessions/:session', whatsappController.deleteSession.bind(whatsappController));
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions/{session}/qrcode:
+ *   get:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: Get QR code for session
+ *     description: Get the QR code to authenticate a specific session
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: session
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session name
+ *     responses:
+ *       200:
+ *         description: QR code available
+ *       202:
+ *         description: QR code is being generated
+ *       500:
+ *         description: Server error
+ */
+router.get('/sessions/:session/qrcode', whatsappController.getSessionQrCode.bind(whatsappController));
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions/{session}/status:
+ *   get:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: Get session status
+ *     description: Get the connection status of a specific session
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: session
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session name
+ *     responses:
+ *       200:
+ *         description: Session status
+ *       500:
+ *         description: Server error
+ */
+router.get('/sessions/:session/status', whatsappController.getSessionStatus.bind(whatsappController));
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions/{session}/initialize:
+ *   post:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: Initialize session
+ *     description: Start the initialization process for a specific session
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: session
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session name
+ *     responses:
+ *       200:
+ *         description: Initialization started
+ *       500:
+ *         description: Server error
+ */
+router.post('/sessions/:session/initialize', whatsappController.initializeSession.bind(whatsappController));
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions/{session}/disconnect:
+ *   post:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: Disconnect session
+ *     description: Disconnect a specific WhatsApp session
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: session
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session name
+ *     responses:
+ *       200:
+ *         description: Session disconnected
+ *       500:
+ *         description: Server error
+ */
+router.post('/sessions/:session/disconnect', whatsappController.disconnectSession.bind(whatsappController));
+
+/**
+ * @openapi
+ * /api/whatsapp/sessions/{session}/send-message:
+ *   post:
+ *     tags:
+ *       - WhatsApp Sessions
+ *     summary: Send message via session
+ *     description: Send a message through a specific WhatsApp session
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: session
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Session name
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *               - message
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 example: "5511987654321"
+ *               message:
+ *                 type: string
+ *                 example: "Hello from session!"
+ *     responses:
+ *       200:
+ *         description: Message sent
+ *       400:
+ *         description: Invalid request
+ *       500:
+ *         description: Server error
+ */
+router.post('/sessions/:session/send-message', whatsappController.sendMessageViaSession.bind(whatsappController));
+
 export default router;

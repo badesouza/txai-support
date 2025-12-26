@@ -1,5 +1,12 @@
-import type { WhatsAppConnectionStatus, WhatsAppMessage } from './whatsapp.types';
+import type { WhatsAppConnectionStatus, WhatsAppMessage, SessionInfo } from './whatsapp.types';
 import { WhatsAppMessageProcessor } from './whatsapp-message-processor';
+
+export interface WPPConnectServerConfig {
+  baseUrl?: string;
+  session?: string;
+  secretKey?: string;
+  webhookSecret?: string;
+}
 
 interface JsonRecord {
   [key: string]: unknown;
@@ -82,16 +89,26 @@ export class WPPConnectServerService {
 
   private readonly processor: WhatsAppMessageProcessor;
 
-  constructor() {
-    this.baseUrl = process.env.WPPCONNECT_BASE_URL || 'http://localhost:21465';
-    this.session = process.env.WPPCONNECT_SESSION || 'txai-whatsapp';
-    this.secretKey = process.env.WPPCONNECT_SECRET_KEY || 'THISISMYSECURETOKEN';
-    this.webhookSecret = process.env.WPPCONNECT_WEBHOOK_SECRET || 'txai-webhook-secret';
+  constructor(config: WPPConnectServerConfig = {}) {
+    this.baseUrl = config.baseUrl ?? process.env.WPPCONNECT_BASE_URL ?? 'http://localhost:21465';
+    this.session = config.session ?? process.env.WPPCONNECT_SESSION ?? 'txai-whatsapp';
+    this.secretKey = config.secretKey ?? process.env.WPPCONNECT_SECRET_KEY ?? 'THISISMYSECURETOKEN';
+    this.webhookSecret = config.webhookSecret ?? process.env.WPPCONNECT_WEBHOOK_SECRET ?? 'txai-webhook-secret';
 
     this.processor = new WhatsAppMessageProcessor({
       downloadMediaByMessageId: async (messageId) => this.getMediaByMessageId(messageId),
       sendText: async (phone, message) => this.sendMessage(phone, message),
     });
+  }
+
+  /** Get the session name for this service instance. */
+  getSessionName(): string {
+    return this.session;
+  }
+
+  /** Get the base URL for this service instance. */
+  getBaseUrl(): string {
+    return this.baseUrl;
   }
 
   /** Ensure the server session is started and we have a bearer token. */
@@ -224,6 +241,142 @@ export class WPPConnectServerService {
       method: 'POST',
       auth: true,
     });
+  }
+
+  /** Get detailed info about this session. */
+  async getSessionInfo(): Promise<SessionInfo> {
+    await this.ensureToken();
+
+    const connectionPayload = await this.requestJson(
+      `/api/${encodeURIComponent(this.session)}/check-connection-session`,
+      { method: 'GET', auth: true }
+    );
+
+    const isConnected = isRecord(connectionPayload) && connectionPayload['status'] === true;
+
+    let status: SessionInfo['status'] = 'DISCONNECTED';
+    let phone: string | null = null;
+
+    if (isConnected) {
+      status = 'CONNECTED';
+      // Try to get phone number from connection info
+      if (isRecord(connectionPayload) && typeof connectionPayload['phone'] === 'string') {
+        phone = connectionPayload['phone'];
+      }
+    } else {
+      // Check if QR code is available
+      const statusPayload = await this.requestJson(
+        `/api/${encodeURIComponent(this.session)}/status-session`,
+        { method: 'GET', auth: true }
+      );
+
+      if (isRecord(statusPayload)) {
+        const statusStr = typeof statusPayload['status'] === 'string' ? statusPayload['status'] : '';
+        if (statusStr.toUpperCase() === 'QRCODE' || statusStr.toUpperCase() === 'CONNECTED') {
+          status = statusStr.toUpperCase() === 'CONNECTED' ? 'CONNECTED' : 'QR_CODE';
+        }
+      }
+    }
+
+    return {
+      name: this.session,
+      status,
+      phone,
+    };
+  }
+
+  /** List all sessions known to the WPPConnect-Server (static method). */
+  static async listAllSessions(baseUrl?: string, secretKey?: string): Promise<SessionInfo[]> {
+    const url = baseUrl ?? process.env.WPPCONNECT_BASE_URL ?? 'http://localhost:21465';
+    const key = secretKey ?? process.env.WPPCONNECT_SECRET_KEY ?? 'THISISMYSECURETOKEN';
+    const defaultSession = process.env.WPPCONNECT_SESSION ?? 'txai-whatsapp';
+
+    // Generate token for the default session to access the API
+    const tokenPath = `/api/${encodeURIComponent(defaultSession)}/${encodeURIComponent(key)}/generate-token`;
+    const tokenResponse = await fetch(`${url}${tokenPath}`, { method: 'POST' });
+    const tokenText = await tokenResponse.text();
+
+    let token: string | null = null;
+    try {
+      const parsed = JSON.parse(tokenText);
+      token = extractToken(parsed);
+    } catch {
+      token = tokenText.trim();
+    }
+
+    if (!token) {
+      throw new Error('Failed to obtain token for listing sessions');
+    }
+
+    // Try to get all sessions - the endpoint varies by WPPConnect-Server version
+    // First try the default session's show-all-sessions
+    const showAllPath = `/api/${encodeURIComponent(defaultSession)}/show-all-sessions`;
+    const response = await fetch(`${url}${showAllPath}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const text = await response.text();
+    
+    // Parse the response
+    let sessions: SessionInfo[] = [];
+    try {
+      const parsed = JSON.parse(text);
+      
+      // Handle different response formats
+      if (Array.isArray(parsed)) {
+        sessions = parsed.map((s: unknown) => {
+          if (typeof s === 'string') {
+            return { name: s, status: 'UNKNOWN' as const, phone: null };
+          }
+          if (isRecord(s)) {
+            return {
+              name: typeof s['session'] === 'string' ? s['session'] : typeof s['name'] === 'string' ? s['name'] : 'unknown',
+              status: (typeof s['status'] === 'string' ? s['status'].toUpperCase() : 'UNKNOWN') as SessionInfo['status'],
+              phone: typeof s['phone'] === 'string' ? s['phone'] : null,
+            };
+          }
+          return { name: 'unknown', status: 'UNKNOWN' as const, phone: null };
+        });
+      } else if (isRecord(parsed)) {
+        // Some versions return { response: [...] }
+        const arr = parsed['response'];
+        if (Array.isArray(arr)) {
+          sessions = arr.map((s: unknown) => {
+            if (typeof s === 'string') {
+              return { name: s, status: 'UNKNOWN' as const, phone: null };
+            }
+            if (isRecord(s)) {
+              return {
+                name: typeof s['session'] === 'string' ? s['session'] : typeof s['name'] === 'string' ? s['name'] : 'unknown',
+                status: (typeof s['status'] === 'string' ? s['status'].toUpperCase() : 'UNKNOWN') as SessionInfo['status'],
+                phone: typeof s['phone'] === 'string' ? s['phone'] : null,
+              };
+            }
+            return { name: 'unknown', status: 'UNKNOWN' as const, phone: null };
+          });
+        }
+      }
+    } catch {
+      // If parsing fails, return at least the default session
+      console.warn('Failed to parse sessions list, returning default session only');
+    }
+
+    // If no sessions found, at least return the default session with its status
+    if (sessions.length === 0) {
+      const defaultService = new WPPConnectServerService({ baseUrl: url, secretKey: key });
+      const info = await defaultService.getSessionInfo();
+      sessions = [info];
+    }
+
+    return sessions;
+  }
+
+  /** Start a new session on the WPPConnect-Server. */
+  async startNewSession(): Promise<SessionInfo> {
+    await this.ensureToken();
+    await this.startSessionWithWebhook();
+    return this.getSessionInfo();
   }
 
   /** Handle inbound webhook events from WPPConnect-Server. */

@@ -178,8 +178,7 @@ BACKEND_URL=$(tofu output -raw backend_cloud_run_url)
 BACKEND_SERVICE_NAME=$(tofu output -raw backend_service_name)
 SERVICE_ACCOUNT=$(tofu output -raw runtime_api_email)
 ARTIFACT_REPO_URL=$(tofu output -raw artifact_repo_url)
-WPPCONNECT_URL=$(tofu output -raw wppconnect_cloud_run_url)
-WPPCONNECT_SERVICE_NAME=$(tofu output -raw wppconnect_service_name)
+WPPCONNECT_URL=$(tofu output -raw wppconnect_base_url)
 
 # Extract artifact registry details
 AR_REPO=$(echo "${ARTIFACT_REPO_URL}" | awk -F'/' '{print $3}')
@@ -187,7 +186,6 @@ AR_REPO=$(echo "${ARTIFACT_REPO_URL}" | awk -F'/' '{print $3}')
 log_success "Infrastructure deployed successfully"
 echo "  Backend Service:     ${BACKEND_SERVICE_NAME}"
 echo "  Backend URL:         ${BACKEND_URL}"
-echo "  WPPConnect Service:  ${WPPCONNECT_SERVICE_NAME}"
 echo "  WPPConnect URL:      ${WPPCONNECT_URL}"
 echo ""
 
@@ -295,5 +293,5 @@ echo "   curl ${BACKEND_URL}/api/health"
 echo ""
 echo "3. Monitor logs:"
 echo "   gcloud run services logs read ${BACKEND_SERVICE_NAME} --region ${REGION}"
-echo "   gcloud run services logs read ${WPPCONNECT_SERVICE_NAME} --region ${REGION}"
+echo "   gcloud compute ssh wppconnect-server --zone=us-central1-a --command='sudo docker logs -f wppconnect-server'"
 echo ""

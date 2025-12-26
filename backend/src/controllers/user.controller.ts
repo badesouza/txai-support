@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/jwt';
 import { UserRepository } from '../repositories';
 import { Profile } from '../types/models';
+import { normalizePhone, formatPhoneForDisplay, isValidBrazilianPhone } from '../utils/phone';
 
 export class UserController {
     static async register(req: Request, res: Response) {
@@ -32,8 +33,16 @@ export class UserController {
 
             const hashedPassword = await bcrypt.hash(userData.password, 10);
 
-            // Normalizar telefone: remover formatação e adicionar 55 se necessário
-            const normalizedPhone = UserController.normalizePhoneNumber(userData.phone);
+            // Normalize and validate phone number (E.164 format for WhatsApp)
+            let normalizedPhone: string;
+            try {
+                normalizedPhone = normalizePhone(userData.phone);
+            } catch (phoneError) {
+                return res.status(400).json({ 
+                    message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
+                    field: 'phone'
+                });
+            }
 
             const user = await UserRepository.create({
                 name: userData.name,
@@ -55,7 +64,7 @@ export class UserController {
                     id: user.id,
                     email: user.email,
                     name: user.name,
-                    phone: UserController.formatPhoneForDisplay(user.phone),
+                    phone: formatPhoneForDisplay(user.phone),
                     profile: user.profile
                 },
                 token
@@ -101,7 +110,7 @@ export class UserController {
                     id: user.id,
                     email: user.email,
                     name: user.name,
-                    phone: UserController.formatPhoneForDisplay(user.phone),
+                    phone: formatPhoneForDisplay(user.phone),
                     profile: user.profile
                 },
                 token
@@ -131,7 +140,7 @@ export class UserController {
                 id: user.id,
                 email: user.email,
                 name: user.name,
-                phone: UserController.formatPhoneForDisplay(user.phone),
+                phone: formatPhoneForDisplay(user.phone),
                 profile: user.profile
             });
         } catch (error) {
@@ -148,9 +157,16 @@ export class UserController {
 
             const { password, ...updateData } = req.body;
             
-            // Se está atualizando o telefone, normalizar
+            // Validate and normalize phone if updating
             if (updateData.phone) {
-                updateData.phone = UserController.normalizePhoneNumber(updateData.phone);
+                try {
+                    updateData.phone = normalizePhone(updateData.phone);
+                } catch (phoneError) {
+                    return res.status(400).json({ 
+                        message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
+                        field: 'phone'
+                    });
+                }
             }
             
             const updatedUser = await UserRepository.update(String(userId), updateData);
@@ -163,7 +179,7 @@ export class UserController {
                 id: updatedUser.id,
                 email: updatedUser.email,
                 name: updatedUser.name,
-                phone: UserController.formatPhoneForDisplay(updatedUser.phone),
+                phone: formatPhoneForDisplay(updatedUser.phone),
                 profile: updatedUser.profile
             });
         } catch (error) {
@@ -209,6 +225,18 @@ export class UserController {
             console.log('Dados recebidos para atualização:', req.body);
             const { password, ...updateData } = req.body;
 
+            // Validate and normalize phone if present
+            if (updateData.phone) {
+                try {
+                    updateData.phone = normalizePhone(updateData.phone);
+                } catch (phoneError) {
+                    return res.status(400).json({ 
+                        message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
+                        field: 'phone'
+                    });
+                }
+            }
+
             // Validar e converter o perfil se estiver presente
             if (updateData.profile) {
                 const profile = updateData.profile.toUpperCase();
@@ -239,7 +267,7 @@ export class UserController {
                 id: updatedUser.id,
                 email: updatedUser.email,
                 name: updatedUser.name,
-                phone: updatedUser.phone,
+                phone: formatPhoneForDisplay(updatedUser.phone),
                 profile: updatedUser.profile
             });
         } catch (error: any) {
@@ -284,7 +312,7 @@ export class UserController {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                phone: UserController.formatPhoneForDisplay(user.phone),
+                phone: formatPhoneForDisplay(user.phone),
                 profile: user.profile,
                 createdAt: user.createdAt,
                 updatedAt: user.updatedAt
@@ -334,8 +362,16 @@ export class UserController {
             const hashedPassword = await bcrypt.hash(userData.password, 10);
             console.log('Hash da senha criado');
 
-            // Normalizar telefone
-            const normalizedPhone = UserController.normalizePhoneNumber(userData.phone);
+            // Validate and normalize phone (E.164 format for WhatsApp)
+            let normalizedPhone: string;
+            try {
+                normalizedPhone = normalizePhone(userData.phone);
+            } catch (phoneError) {
+                return res.status(400).json({ 
+                    message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
+                    field: 'phone'
+                });
+            }
 
             console.log('Criando usuário com dados:', {
                 ...userData,
@@ -357,7 +393,7 @@ export class UserController {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                phone: UserController.formatPhoneForDisplay(user.phone),
+                phone: formatPhoneForDisplay(user.phone),
                 profile: user.profile
             });
         } catch (error) {
@@ -390,7 +426,7 @@ export class UserController {
                 id: user.id,
                 name: user.name,
                 email: user.email,
-                phone: UserController.formatPhoneForDisplay(user.phone),
+                phone: formatPhoneForDisplay(user.phone),
                 profile: user.profile
             });
         } catch (error) {
@@ -415,61 +451,5 @@ export class UserController {
         } catch (error: any) {
             res.status(500).json({ message: 'Error deleting user' });
         }
-    }
-
-    /**
-     * Normaliza número de telefone para o formato do banco: 55 + apenas dígitos
-     */
-    private static normalizePhoneNumber(phone: string): string {
-        console.log('🔧 normalizePhoneNumber - Input:', phone);
-        
-        // Remove todos os caracteres não numéricos
-        const digitsOnly = phone.replace(/\D/g, '');
-        console.log('🔧 normalizePhoneNumber - digitsOnly:', digitsOnly);
-        
-        // Se começar com 55, mantém como está
-        if (digitsOnly.startsWith('55')) {
-            console.log('🔧 normalizePhoneNumber - Já tem 55, retornando:', digitsOnly);
-            return digitsOnly;
-        }
-        
-        // Se tem 11 dígitos (DDD + 9 dígitos), remover o 9 e adicionar 55
-        if (digitsOnly.length === 11) {
-            const without9 = digitsOnly.slice(0, 2) + digitsOnly.slice(3);
-            const result = '55' + without9;
-            console.log('🔧 normalizePhoneNumber - 11 dígitos, retornando:', result);
-            return result;
-        }
-        
-        // Se não começar com 55, adiciona 55 no início
-        const result = '55' + digitsOnly;
-        console.log('🔧 normalizePhoneNumber - Adicionando 55, retornando:', result);
-        return result;
-    }
-
-    /**
-     * Formata número de telefone para exibição: (99) 99999-9999
-     */
-    private static formatPhoneForDisplay(phone: string): string {
-        // Remove todos os caracteres não numéricos
-        const digitsOnly = phone.replace(/\D/g, '');
-        
-        // Se tem 12 dígitos (55 + 10 dígitos), formata como (99) 99999-9999
-        if (digitsOnly.length === 12 && digitsOnly.startsWith('55')) {
-            return `(${digitsOnly.slice(2, 4)}) 9${digitsOnly.slice(4, 9)}-${digitsOnly.slice(9)}`;
-        }
-        
-        // Se tem 11 dígitos (55 + 9 dígitos), formata como (99) 99999-9999
-        if (digitsOnly.length === 11 && digitsOnly.startsWith('55')) {
-            return `(${digitsOnly.slice(2, 4)}) ${digitsOnly.slice(4, 9)}-${digitsOnly.slice(9)}`;
-        }
-        
-        // Se tem 10 dígitos (55 + 8 dígitos), formata como (99) 9999-9999
-        if (digitsOnly.length === 10 && digitsOnly.startsWith('55')) {
-            return `(${digitsOnly.slice(2, 4)}) ${digitsOnly.slice(4, 8)}-${digitsOnly.slice(8)}`;
-        }
-        
-        // Se não conseguir formatar, retorna o original
-        return phone;
     }
 }

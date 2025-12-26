@@ -17,4 +17,8 @@ export interface WhatsAppConnectionStatus {
   qrCode?: string;
 }
 
-
+export interface SessionInfo {
+  name: string;
+  status: 'CONNECTED' | 'DISCONNECTED' | 'QR_CODE' | 'STARTING' | 'UNKNOWN';
+  phone: string | null;
+}
