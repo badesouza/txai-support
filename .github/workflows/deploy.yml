@@ -15,7 +15,7 @@ on:
       components:
         description: 'Components to deploy'
         required: true
-        default: 'all'
+        default: 'backend-frontend'
         type: choice
         options:
           - all
@@ -36,7 +36,7 @@ permissions:
 
 concurrency:
   group: deploy-${{ inputs.environment }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ inputs.environment == 'dev' }}
 
 env:
   TOFU_VERSION: '1.8.6'
@@ -70,6 +70,19 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_TF_SERVICE_ACCOUNT }}
 
+      - name: Enable Tofu plugin cache
+        run: |
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> $GITHUB_ENV
+
+      - name: Cache Tofu plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', inputs.environment)) }}
+          restore-keys: |
+            ${{ runner.os }}-tofu-
+
       - name: Initialize Terraform
         run: |
           tofu init \
@@ -80,8 +93,12 @@ jobs:
       - name: Apply Infrastructure
         run: |
           tofu apply -auto-approve \
+            -input=false \
+            -lock-timeout=5m \
+            -parallelism=20 \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-            -var="region=${{ vars.GCP_REGION || 'us-central1' }}"
+            -var="region=${{ vars.GCP_REGION || 'us-central1' }}" \
+            -var="redis_enabled=false"
         working-directory: infra/terraform/environments/${{ inputs.environment }}
 
       - name: Extract Outputs
