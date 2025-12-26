@@ -170,7 +170,7 @@ tofu plan \
 
 # Terraform Apply
 log_info "Applying infrastructure..."
-tofu apply tfplan
+tofu apply -lock-timeout=30m tfplan
 
 # Extract outputs
 log_info "Extracting Terraform outputs..."

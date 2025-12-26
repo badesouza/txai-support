@@ -142,7 +142,7 @@ if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
 fi
 
 log_info "Applying bootstrap infrastructure..."
-tofu apply tfplan
+tofu apply -lock-timeout=30m tfplan
 
 # Get outputs
 log_info "Extracting outputs..."
