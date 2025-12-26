@@ -6,13 +6,14 @@ Technical support system running on Google Cloud Platform (GCP) with Firestore.
 
 ### Prerequisites
 
-Create a `.env` file with your secrets:
+Create a `.env` file with your secrets (optional, but recommended):
 
 ```bash
-cp .env.example .env
+cp env.example .env
 # Edit .env and set:
-# - JWT_SECRET (generate with: openssl rand -hex 32)
+# - JWT_SECRET
 # - ADMIN_DEFAULT_PASSWORD (for initial admin user)
+# - WPPCONNECT_SECRET_KEY / WPPCONNECT_WEBHOOK_SECRET (WhatsApp, used by docker-compose)
 ```
 
 ### Start Locally (Docker Compose)
@@ -28,6 +29,7 @@ docker-compose up -d
 | Backend API | http://localhost:3001/api |
 | Firebase Emulator UI | http://localhost:4000 |
 | GCS Emulator | http://localhost:4443 |
+| WPPConnect Server | http://localhost:21465 |
 
 **Default Admin:**
 - Email: `admin@txai.com`

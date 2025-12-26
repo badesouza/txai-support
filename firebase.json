@@ -49,7 +49,7 @@
   "emulators": {
     "firestore": {
       "host": "0.0.0.0",
-      "port": 8080
+      "port": 8082
     },
     "auth": {
       "host": "0.0.0.0",

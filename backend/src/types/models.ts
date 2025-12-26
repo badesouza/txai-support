@@ -146,6 +146,10 @@ export interface WhatsAppMessage {
   message: string;
   messageType: string;
   isFromUser: boolean;
+  // Optional media metadata for image/video messages
+  mediaPath?: string;
+  mediaFilename?: string;
+  mediaMimetype?: string;
   createdAt: Date;
 }
 
@@ -156,6 +160,9 @@ export interface WhatsAppMessageCreateInput {
   message: string;
   messageType?: string;
   isFromUser?: boolean;
+  mediaPath?: string;
+  mediaFilename?: string;
+  mediaMimetype?: string;
 }
 
 // =============================================================================

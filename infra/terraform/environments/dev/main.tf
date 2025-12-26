@@ -1,6 +1,7 @@
 locals {
   required_apis = [
     "run.googleapis.com",
+    "compute.googleapis.com",
     "cloudbuild.googleapis.com",
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
@@ -103,10 +104,53 @@ locals {
   firebase_primary_url   = "https://${var.project_id}.web.app"
   firebase_alternate_url = "https://${var.project_id}.firebaseapp.com"
 
+  # WPPConnect-Server config (mirrors repo's wppconnect/config.json defaults,
+  # with browserArgs needed for running Chromium inside Cloud Run).
+  wppconnect_config_json = jsonencode({
+    secretKey          = var.wppconnect_secret_key
+    host               = "http://localhost"
+    port               = tostring(var.wppconnect_container_port)
+    customUserDataDir  = "./userDataDir/"
+    startAllSession    = true
+    maxListeners       = 15
+    webhook            = {
+      url             = null
+      autoDownload    = false
+      readMessage     = false
+      allUnreadOnStart = true
+    }
+    archive            = {
+      enable        = false
+      waitTime      = 10
+      diasToArchive = 45
+    }
+    log                = {
+      level  = "error"
+      logger = ["console"]
+    }
+    createOptions       = {
+      autoClose   = 120000
+      browserArgs = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    }
+  })
+
+  # WPPConnect-Server base URL (now hosted on a persistent VM with a static IP).
+  wppconnect_base_url = "http://${google_compute_address.wppconnect_ip.address}:${var.wppconnect_container_port}"
+
   default_backend_env_vars = {
     STORAGE_DRIVER = "gcs"
     GCS_BUCKET     = google_storage_bucket.uploads.name
     GCS_PROJECT_ID = var.project_id
+    # Backend Firebase initialization depends on GCP_PROJECT_ID/FIREBASE_PROJECT_ID.
+    # If missing it falls back to "local-dev" and fails in Cloud Run.
+    GCP_PROJECT_ID      = var.project_id
+    FIREBASE_PROJECT_ID = var.project_id
+    # WhatsApp uses WPPConnect-Server in Cloud Run (no Puppeteer/Chromium in backend).
+    WHATSAPP_DRIVER           = "server"
+    WPPCONNECT_BASE_URL       = local.wppconnect_base_url
+    WPPCONNECT_SESSION        = var.wppconnect_session
+    WPPCONNECT_SECRET_KEY     = var.wppconnect_secret_key
+    WPPCONNECT_WEBHOOK_SECRET = var.wppconnect_webhook_secret
     # Support both Firebase domains (backend accepts CORS_ORIGINS as CSV)
     CORS_ORIGINS = "${local.firebase_primary_url},${local.firebase_alternate_url}"
   }
@@ -155,6 +199,22 @@ resource "google_firestore_database" "main" {
   delete_protection_state = var.environment_name == "prod" ? "DELETE_PROTECTION_ENABLED" : "DELETE_PROTECTION_DISABLED"
 
   depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret" "wppconnect_config" {
+  project   = var.project_id
+  secret_id = "wppconnect-config-${var.environment_name}"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "wppconnect_config" {
+  secret      = google_secret_manager_secret.wppconnect_config.id
+  secret_data = local.wppconnect_config_json
 }
 
 resource "google_cloud_run_v2_service" "backend" {
@@ -212,7 +272,12 @@ resource "google_cloud_run_v2_service" "backend" {
   }
 
   lifecycle {
-    ignore_changes = [template[0].containers[0].image]
+    # We deploy the image and some runtime env vars via scripts (Cloud Build + gcloud run services update).
+    # If Terraform keeps managing env blocks, it can clobber script-updated vars (e.g. PUBLIC_BASE_URL).
+    ignore_changes = [
+      template[0].containers[0].image,
+      template[0].containers[0].env,
+    ]
   }
 
   depends_on = [google_project_service.apis]

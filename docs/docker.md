@@ -6,8 +6,8 @@ Docker Compose runs the complete development environment locally.
 
 ```bash
 # Create secrets file
-cp .env.example .env
-# Edit .env and set JWT_SECRET and ADMIN_DEFAULT_PASSWORD
+cp env.example .env
+# Edit .env and set JWT_SECRET and ADMIN_DEFAULT_PASSWORD (and WPPCONNECT secrets if needed)
 
 # Start everything
 docker-compose up -d
@@ -22,6 +22,7 @@ docker-compose up -d
 | `firebase-emulator` | 4000, 8082 | Firestore + Auth emulator |
 | `redis` | 6379 | Session storage |
 | `fake-gcs` | 4443 | GCS emulator |
+| `wppconnect-server` | 21465 | WhatsApp API (WPPConnect-Server) |
 
 ## URLs
 
@@ -59,7 +60,7 @@ curl http://localhost:8082
 | Firestore | Docker volume `firebase_data` |
 | Redis | Docker volume `redis_data` |
 | GCS uploads | `./data/gcs/txai-uploads/` |
-| WhatsApp sessions | `./backend/whatsapp-sessions/` |
+| WPPConnect-Server sessions | Docker volume `wppconnect_data` |
 
 ## Troubleshooting
 

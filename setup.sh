@@ -58,13 +58,9 @@ if [ ! -f ".env" ]; then
 # For cloud deployment, see: docs/architecture/LOCAL_VS_CLOUD.md
 # =============================================================================
 
-# Database (PostgreSQL)
-POSTGRES_USER=txai
-POSTGRES_PASSWORD=txai123
-POSTGRES_DB=txai_support
-
 # Backend
-JWT_SECRET=your-super-secret-jwt-key
+JWT_SECRET=change-me-local-dev
+ADMIN_DEFAULT_PASSWORD=admin123
 
 # Redis (for WhatsApp sessions)
 REDIS_URL=redis://redis:6379
@@ -76,22 +72,17 @@ STORAGE_EMULATOR_HOST=http://fake-gcs:4443
 GCS_BUCKET=txai-uploads
 GCS_PROJECT_ID=local-dev
 GCS_PUBLIC_HOST=http://localhost:4443
+GCS_UPLOADS_PREFIX=uploads
 
-# Optional: override API URL baked into the frontend image build
-# REACT_APP_API_URL=http://localhost:3001/api
+# WhatsApp (WPPConnect-Server)
+WHATSAPP_DRIVER=server
+WPPCONNECT_SECRET_KEY=THISISMYSECURETOKEN
+WPPCONNECT_WEBHOOK_SECRET=txai-webhook-secret
 EOF
   echo -e "${GREEN}✓ Created .env (repo root)${NC}"
 else
   echo -e "${GREEN}✓ .env already exists (repo root)${NC}"
 fi
-
-echo ""
-echo -e "${YELLOW}📋 Environment Profiles Available:${NC}"
-echo "   .env.local.template  - All services local (current)"
-echo "   .env.dev.template    - All services in cloud"
-echo "   .env.hybrid.example  - Mix local and cloud"
-echo ""
-echo "   See: docs/architecture/LOCAL_VS_CLOUD.md"
 
 echo ""
 
@@ -144,10 +135,11 @@ echo ""
 echo -e "${GREEN}🎉 Your TXAI Support application is ready!${NC}"
 echo ""
 echo -e "${YELLOW}📍 Access the application at:${NC}"
-echo -e "   Frontend:      ${GREEN}http://localhost:8080${NC}"
+echo -e "   Frontend:      ${GREEN}http://localhost:8081${NC}"
 echo -e "   Backend API:   ${GREEN}http://localhost:3001/api${NC}"
 echo -e "   API Docs:      ${GREEN}http://localhost:3001/api-docs${NC}"
 echo -e "   GCS Emulator:  ${GREEN}http://localhost:4443${NC}"
+echo -e "   WPPConnect:    ${GREEN}http://localhost:21465${NC}"
 echo ""
 echo -e "${YELLOW}🔑 Default Admin Credentials:${NC}"
 echo -e "   Email: ${GREEN}admin@txai.com${NC}"
@@ -158,7 +150,6 @@ echo "   View logs:       ${COMPOSE} logs -f"
 echo "   Backend logs:    ${COMPOSE} logs -f backend"
 echo "   Stop:            ${COMPOSE} down"
 echo "   Restart:         ${COMPOSE} restart"
-echo "   Database CLI:    docker exec -it txai-postgres psql -U txai -d txai_support"
 echo "   Redis CLI:       docker exec -it txai-redis redis-cli"
 echo ""
 echo -e "${YELLOW}📖 Documentation:${NC}"

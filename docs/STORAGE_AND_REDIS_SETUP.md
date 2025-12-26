@@ -57,15 +57,9 @@ GCS_PROJECT_ID=your-project-id
 
 ```typescript
 // backend/src/storage/storage.ts
+// Emulator detection - @google-cloud/storage SDK natively supports STORAGE_EMULATOR_HOST.
+// The provider uses signed URLs in production, and direct public URLs in the emulator.
 const isEmulator = !!process.env.STORAGE_EMULATOR_HOST;
-
-if (isEmulator) {
-  // Use emulator endpoint
-  storage = new Storage({ apiEndpoint: process.env.STORAGE_EMULATOR_HOST });
-} else {
-  // Use real GCS with default credentials
-  storage = new Storage({ projectId: process.env.GCS_PROJECT_ID });
-}
 ```
 
 ## Redis
@@ -107,13 +101,13 @@ WPPConnect stores WhatsApp sessions in Redis:
 
 ```typescript
 // backend/src/services/wppconnect-direct.service.ts
-const client = await wppconnect.create({
-  session: 'txai-support',
-  tokenStore: {
-    type: 'redis',
-    options: { url: process.env.REDIS_URL }
-  }
-});
+// When WHATSAPP_TOKEN_STORE=redis, the direct driver configures WPPConnect to
+// persist tokens/sessions in Redis instead of the filesystem.
+const tokenStore = process.env.WHATSAPP_TOKEN_STORE || 'file';
+if (tokenStore === 'redis') {
+  createOptions.tokenStore = 'redis';
+  createOptions.redis = parseRedisUrl(process.env.REDIS_URL);
+}
 ```
 
 ## Testing

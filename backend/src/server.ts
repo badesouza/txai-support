@@ -9,10 +9,10 @@ import process from 'process';
 import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
-import { wppConnectDirectService } from './services/wppconnect-direct.service';
 import { storage } from './storage/storage';
 import { swaggerSpec } from './config/swagger';
 import { initializeFirebase, getFirestore } from './lib/firebase';
+import { whatsappService } from './services/whatsapp/whatsapp.service';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -43,7 +43,8 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+// Allow larger payloads (WPPConnect webhook may include base64 media data)
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT ?? '25mb' }));
 
 // Note: No local uploads directory needed
 // All files are stored in GCS (configured via STORAGE_DRIVER=gcs)
@@ -80,12 +81,12 @@ async function startServer() {
 
     // Start WPPConnect Direct Service (optional, async, don't wait)
     if (whatsappEnabled) {
-      wppConnectDirectService.initialize()
+      whatsappService.initialize()
         .then(() => {
-          console.log('✅ WPPConnect Direct Service started');
+          console.log('✅ WhatsApp service started');
         })
         .catch((error) => {
-          console.error('❌ Failed to start WPPConnect Direct Service:', error);
+          console.error('❌ Failed to start WhatsApp service:', error);
         });
     } else {
       console.log('ℹ️ WhatsApp disabled (WHATSAPP_ENABLED=false)');

@@ -77,27 +77,9 @@ backend_env_vars = {
   GCS_UPLOADS_PREFIX = "uploads"
   GCS_SIGNED_URL_TTL_SECONDS = "900"  # 15 minutes
 
-  # Note: DATABASE_URL, STORAGE_DRIVER, GCS_BUCKET, GCS_PROJECT_ID, and CORS_ORIGIN
+  # Note: STORAGE_DRIVER, GCS_BUCKET, GCS_PROJECT_ID, and CORS_ORIGINS
   # are automatically set by Terraform based on the infrastructure created
 }
-
-# ======================================
-# Database Configuration (Cloud SQL)
-# ======================================
-
-cloudsql_enabled = true                    # Set to false to disable Cloud SQL
-
-# Database Instance Configuration
-# database_instance_name = "custom-instance-name"  # Optional, auto-generated if not set
-database_name     = "txai_support"
-database_user     = "txai"
-# database_password = ""                   # Leave empty to auto-generate
-
-# Database Resources
-database_tier              = "db-f1-micro" # See: https://cloud.google.com/sql/pricing
-database_disk_size_gb      = 10
-database_availability_type = "ZONAL"       # "REGIONAL" for high availability
-database_backup_enabled    = true
 
 # ======================================
 # Service Accounts

@@ -168,9 +168,17 @@ Should show both Firebase domains.
 
 ## Local Development
 
-**Firebase is NOT needed for local development!**
+**Firebase Hosting is NOT needed for local development.**
 
-Simply run the React dev server:
+You have two options:
+
+1) Run the full stack via Docker Compose (includes Nginx frontend at `http://localhost:8081`):
+
+```bash
+docker-compose up -d --build
+```
+
+2) Or run the React dev server (frontend only) and point it to the API:
 
 ```bash
 cd frontend
@@ -418,10 +426,9 @@ This project was migrated from Google Cloud Storage (GCS) to Firebase Hosting.
 - Better DX (CLI, hosting channels)
 - Free tier (GCS cost ~$0.13/month)
 
-**Removed:**
+**Removed (cloud deploy):**
 - GCS frontend bucket (Terraform resource)
-- nginx configuration (not needed, Firebase handles routing)
-- Docker frontend service (use `npm start` locally)
+- Nginx/VM hosting for production frontend (Firebase handles routing)
 
 ## Additional Resources
 

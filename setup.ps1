@@ -59,13 +59,9 @@ if (-not (Test-Path ".env")) {
 # For cloud deployment, see: docs/architecture/LOCAL_VS_CLOUD.md
 # =============================================================================
 
-# Database (PostgreSQL)
-POSTGRES_USER=txai
-POSTGRES_PASSWORD=txai123
-POSTGRES_DB=txai_support
-
 # Backend
-JWT_SECRET=your-super-secret-jwt-key
+JWT_SECRET=change-me-local-dev
+ADMIN_DEFAULT_PASSWORD=admin123
 
 # Redis (for WhatsApp sessions)
 REDIS_URL=redis://redis:6379
@@ -77,22 +73,17 @@ STORAGE_EMULATOR_HOST=http://fake-gcs:4443
 GCS_BUCKET=txai-uploads
 GCS_PROJECT_ID=local-dev
 GCS_PUBLIC_HOST=http://localhost:4443
+GCS_UPLOADS_PREFIX=uploads
 
-# Optional: override API URL baked into the frontend image build
-# REACT_APP_API_URL=http://localhost:3001/api
+# WhatsApp (WPPConnect-Server)
+WHATSAPP_DRIVER=server
+WPPCONNECT_SECRET_KEY=THISISMYSECURETOKEN
+WPPCONNECT_WEBHOOK_SECRET=txai-webhook-secret
 "@ | Out-File -FilePath ".env" -Encoding UTF8
     Write-Host "✓ Created .env (repo root)" -ForegroundColor Green
 } else {
     Write-Host "✓ .env already exists (repo root)" -ForegroundColor Green
 }
-
-Write-Host ""
-Write-Host "📋 Environment Profiles Available:" -ForegroundColor Yellow
-Write-Host "   .env.local.template  - All services local (current)"
-Write-Host "   .env.dev.template    - All services in cloud"
-Write-Host "   .env.hybrid.example  - Mix local and cloud"
-Write-Host ""
-Write-Host "   See: docs/architecture/LOCAL_VS_CLOUD.md"
 
 Write-Host ""
 
@@ -142,10 +133,11 @@ Write-Host ""
 Write-Host "🎉 Your TXAI Support application is ready!" -ForegroundColor Green
 Write-Host ""
 Write-Host "📍 Access the application at:" -ForegroundColor Yellow
-Write-Host "   Frontend:      " -NoNewline; Write-Host "http://localhost:8080" -ForegroundColor Green
+Write-Host "   Frontend:      " -NoNewline; Write-Host "http://localhost:8081" -ForegroundColor Green
 Write-Host "   Backend API:   " -NoNewline; Write-Host "http://localhost:3001/api" -ForegroundColor Green
 Write-Host "   API Docs:      " -NoNewline; Write-Host "http://localhost:3001/api-docs" -ForegroundColor Green
 Write-Host "   GCS Emulator:  " -NoNewline; Write-Host "http://localhost:4443" -ForegroundColor Green
+Write-Host "   WPPConnect:    " -NoNewline; Write-Host "http://localhost:21465" -ForegroundColor Green
 Write-Host ""
 Write-Host "🔑 Default Admin Credentials:" -ForegroundColor Yellow
 Write-Host "   Email: " -NoNewline; Write-Host "admin@txai.com" -ForegroundColor Green
@@ -156,7 +148,6 @@ Write-Host ("   View logs:       " + ($ComposeCmd -join " ") + " logs -f")
 Write-Host ("   Backend logs:    " + ($ComposeCmd -join " ") + " logs -f backend")
 Write-Host ("   Stop:            " + ($ComposeCmd -join " ") + " down")
 Write-Host ("   Restart:         " + ($ComposeCmd -join " ") + " restart")
-Write-Host "   Database CLI:    docker exec -it txai-postgres psql -U txai -d txai_support"
 Write-Host "   Redis CLI:       docker exec -it txai-redis redis-cli"
 Write-Host ""
 Write-Host "📖 Documentation:" -ForegroundColor Yellow

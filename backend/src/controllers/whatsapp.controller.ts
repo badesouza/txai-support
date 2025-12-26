@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
-import { wppConnectDirectService } from '../services/wppconnect-direct.service';
+import { whatsappService } from '../services/whatsapp/whatsapp.service';
 import { WhatsAppMessageRepository } from '../repositories';
+import { storage } from '../storage/storage';
 
 export class WhatsAppController {
   private lastStatusCheck = 0;
@@ -12,7 +13,7 @@ export class WhatsAppController {
 
   async initialize(req: Request, res: Response) {
     try {
-      await wppConnectDirectService.initialize();
+      await whatsappService.initialize();
       res.json({ success: true, message: 'WhatsApp initialization requested' });
     } catch (error) {
       res.status(500).json({ error: 'Error initializing WhatsApp' });
@@ -22,7 +23,7 @@ export class WhatsAppController {
   async disconnect(req: Request, res: Response) {
     try {
       console.log('🔌 Controller: Iniciando desconexão do WhatsApp...');
-      await wppConnectDirectService.disconnect();
+      await whatsappService.disconnect();
       console.log('✅ Controller: WhatsApp desconectado');
       res.json({ message: 'WhatsApp disconnected successfully' });
     } catch (error) {
@@ -35,8 +36,13 @@ export class WhatsAppController {
   async reconnect(req: Request, res: Response) {
     try {
       console.log('🔄 Controller: Recriando sessão...');
-      await wppConnectDirectService.disconnect();
-      await wppConnectDirectService.initialize();
+      try {
+        await whatsappService.disconnect();
+      } catch (error) {
+        // Best-effort disconnect: WPPConnect-Server can return errors when no session exists yet.
+        console.warn('⚠️ Controller: Falha ao desconectar (continuando):', error);
+      }
+      await whatsappService.initialize();
       return res.json({ success: true, message: 'WhatsApp reconnection requested' });
     } catch (error) {
       console.error('❌ Controller: Erro ao reconectar WhatsApp:', error);
@@ -52,7 +58,7 @@ export class WhatsAppController {
         return res.json(this.statusCache);
       }
 
-      const { isConnected: status, hasQRCode, qrCode } = wppConnectDirectService.getConnectionStatus();
+      const { isConnected: status, hasQRCode, qrCode } = await whatsappService.getConnectionStatus();
       const phone = null;
 
       if (status) {
@@ -77,7 +83,7 @@ export class WhatsAppController {
       console.log(`📱 GET /qrcode - Solicitação recebida (última: ${now - this.lastQrCodeRequest}ms atrás)`);
       
       // Primeiro verificar se já está conectado (antes de qualquer cache/debounce)
-      const { isConnected: connected } = wppConnectDirectService.getConnectionStatus();
+      const { isConnected: connected } = await whatsappService.getConnectionStatus();
       const phone = null;
       
       if (connected) {
@@ -96,7 +102,7 @@ export class WhatsAppController {
       this.lastQrCodeRequest = now;
       
       // Get QR code from the direct service
-      const qrCode = await wppConnectDirectService.getQrCode();
+      const qrCode = await whatsappService.getQrCode();
       if (qrCode === null) {
         // Not connected, but QR isn't ready yet.
         return res.status(202).json({ connected: false, qrCode: null, phone: null, state: 'GENERATING_QR' });
@@ -120,11 +126,28 @@ export class WhatsAppController {
       if (!phone || !message) {
         return res.status(400).json({ error: 'Phone and message are required' });
       }
-      await wppConnectDirectService.sendMessage(phone, message);
+      await whatsappService.sendMessage(phone, message);
       res.json({ success: true, message: 'Message sent successfully' });
     } catch (error) {
       console.error('Error sending message:', error);
       res.status(500).json({ error: 'Error sending message' });
+    }
+  }
+
+  async webhook(req: Request, res: Response) {
+    try {
+      const token = String(req.query.token ?? req.header('x-webhook-token') ?? '');
+      const expected = String(process.env.WPPCONNECT_WEBHOOK_SECRET ?? '');
+
+      if (!expected || token !== expected) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      await whatsappService.handleWebhookEvent(req.body);
+      return res.json({ ok: true });
+    } catch (error) {
+      console.error('❌ Error handling WhatsApp webhook:', error);
+      return res.status(500).json({ error: 'Error handling webhook' });
     }
   }
 
@@ -142,7 +165,18 @@ export class WhatsAppController {
       
       if (callId) {
         const messages = await WhatsAppMessageRepository.findByCallId(String(callId));
-        res.json({ messages });
+        const hydrated = await Promise.all(
+          messages.map(async (m) => {
+            if (!m.mediaPath) return { ...m, mediaUrl: null };
+            try {
+              const mediaUrl = await storage.getFileUrl(m.mediaPath);
+              return { ...m, mediaUrl };
+            } catch {
+              return { ...m, mediaUrl: null };
+            }
+          })
+        );
+        res.json({ messages: hydrated });
       } else if (phone) {
         const messages = await WhatsAppMessageRepository.findByPhone(String(phone));
         res.json({ messages });

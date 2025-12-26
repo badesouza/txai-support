@@ -141,6 +141,22 @@ router.get('/qrcode', whatsappController.getQrCode.bind(whatsappController));
 
 /**
  * @openapi
+ * /api/whatsapp/webhook:
+ *   post:
+ *     tags:
+ *       - WhatsApp
+ *     summary: Webhook receiver for WPPConnect-Server events
+ *     description: Internal endpoint used by WPPConnect-Server to deliver inbound events/messages
+ *     responses:
+ *       200:
+ *         description: OK
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/webhook', whatsappController.webhook.bind(whatsappController));
+
+/**
+ * @openapi
  * /api/whatsapp/send-message:
  *   post:
  *     tags:

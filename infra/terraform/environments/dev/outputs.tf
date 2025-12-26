@@ -38,6 +38,16 @@ output "backend_service_name" {
   description = "Cloud Run service name for backend API"
 }
 
+output "wppconnect_static_ip" {
+  value       = google_compute_address.wppconnect_ip.address
+  description = "Static external IP for WPPConnect-Server VM"
+}
+
+output "wppconnect_base_url" {
+  value       = "http://${google_compute_address.wppconnect_ip.address}:${var.wppconnect_container_port}"
+  description = "Base URL for WPPConnect-Server VM"
+}
+
 output "ci_deployer_email" {
   value = google_service_account.ci_deployer.email
 }
@@ -72,4 +82,9 @@ output "redis_database_id" {
 output "redis_secret_id" {
   value       = var.redis_enabled ? google_secret_manager_secret.redis_url[0].secret_id : ""
   description = "Secret Manager secret ID for Redis URL"
+}
+
+output "wppconnect_config_secret_id" {
+  value       = google_secret_manager_secret.wppconnect_config.secret_id
+  description = "Secret Manager secret ID for WPPConnect-Server config"
 }

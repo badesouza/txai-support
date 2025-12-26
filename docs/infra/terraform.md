@@ -85,7 +85,6 @@ Template de variáveis:
 Exemplo de `backend_env_vars` (em um `.tfvars`):
 ```hcl
 backend_env_vars = {
-  DATABASE_URL   = "postgresql://user:pass@host:5432/txai_support"
   JWT_SECRET     = "troque-isto"
   CORS_ORIGINS   = "https://<project-id>.web.app,https://<project-id>.firebaseapp.com"
   STORAGE_DRIVER = "gcs"
@@ -98,12 +97,8 @@ backend_env_vars = {
 O bucket de uploads é privado. O backend deve gerar URLs assinadas para upload/download.
 O service account `runtime-api` recebe `roles/iam.serviceAccountTokenCreator` para assinar URLs.
 
-## Banco (Cloud SQL)
-O ambiente cria uma instância Postgres com banco/usuário. Outputs úteis:
-- `cloudsql_instance_connection_name`
-- `cloudsql_database_name`
-- `cloudsql_database_user`
-- `cloudsql_database_password` (sensível)
+## Banco (Firestore)
+O ambiente usa **Cloud Firestore** (Native Mode). Não há `DATABASE_URL`.
 
 ## Trunk-based + feature flags
 Recomendado:

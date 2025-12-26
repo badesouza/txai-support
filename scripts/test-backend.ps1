@@ -17,9 +17,9 @@ npm --prefix backend ci
 Write-Host "🔬 Executando testes unitários..." -ForegroundColor Green
 npm --prefix backend run test
 
-# Executar testes de integração
-Write-Host "🔗 Executando testes de integração..." -ForegroundColor Green
-npm --prefix backend run test:integration
+# Executar testes funcionais (integração via API)
+Write-Host "🔗 Executando testes funcionais..." -ForegroundColor Green
+npm --prefix backend run test:functional
 
 # Gerar relatório de cobertura
 Write-Host "📊 Gerando relatório de cobertura..." -ForegroundColor Green

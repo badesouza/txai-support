@@ -19,11 +19,15 @@ TXAI Support is designed with **environment parity** - the same code runs locall
 
 ```typescript
 // backend/src/lib/firebase.ts
-if (process.env.FIRESTORE_EMULATOR_HOST) {
-  // Local: Connect to Firebase Emulator
-  firestore.settings({ host: process.env.FIRESTORE_EMULATOR_HOST, ssl: false });
+const isEmulator = !!process.env.FIRESTORE_EMULATOR_HOST;
+const projectId = process.env.GCP_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || 'local-dev';
+
+if (isEmulator) {
+  // Local: Firebase Admin SDK auto-detects emulator via env var
+  admin.initializeApp({ projectId });
 } else {
-  // Cloud: Use production Firestore
+  // Cloud: Uses production Firestore (ADC or FIREBASE_CREDENTIALS_JSON)
+  admin.initializeApp({ projectId });
 }
 ```
 

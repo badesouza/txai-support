@@ -1,5 +1,21 @@
 $ErrorActionPreference = "Stop"
 
+# Load local, non-committed secrets if present (preferred on this repo).
+# This keeps tokens out of git while still feeding deploy scripts automatically.
+if (Test-Path ".secrets.local") {
+    foreach ($line in Get-Content ".secrets.local") {
+        if ($line -match '^\s*#' -or $line -match '^\s*$') { continue }
+        $pair = $line -split '=', 2
+        if ($pair.Length -lt 2) { continue }
+        $name = $pair[0]
+        $value = $pair[1]
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        if ([string]::IsNullOrWhiteSpace((Get-Item -Path "Env:$name" -ErrorAction SilentlyContinue).Value)) {
+            Set-Item -Path ("Env:$name") -Value $value
+        }
+    }
+}
+
 $ProjectId = if ($env:PROJECT_ID) { $env:PROJECT_ID } else { "" }
 $Region = if ($env:REGION) { $env:REGION } else { "us-central1" }
 $EnvironmentName = if ($env:ENVIRONMENT_NAME) { $env:ENVIRONMENT_NAME } else { "dev" }
@@ -16,6 +32,17 @@ if ([string]::IsNullOrWhiteSpace($TfStateBucket)) {
     exit 1
 }
 
+# Ensure OpenTofu can access the GCS state backend on developer machines without
+# requiring ADC to be configured (common on Windows). This token is short-lived.
+try {
+    $AccessToken = (gcloud auth print-access-token 2>$null).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
+        $env:GOOGLE_OAUTH_ACCESS_TOKEN = $AccessToken
+    }
+} catch {
+    # If token retrieval fails, OpenTofu may still work via ADC or other auth.
+}
+
 Write-Host "==> Terraform apply (project=$ProjectId, region=$Region, env=$EnvironmentName)" -ForegroundColor Cyan
 tofu -chdir=infra/terraform/environments/dev init `
   -backend-config="bucket=$TfStateBucket" `
@@ -29,6 +56,7 @@ tofu -chdir=infra/terraform/environments/dev apply -auto-approve `
 $BackendUrl = tofu -chdir=infra/terraform/environments/dev output -raw backend_cloud_run_url
 $BackendServiceName = tofu -chdir=infra/terraform/environments/dev output -raw backend_service_name
 $ServiceAccount = tofu -chdir=infra/terraform/environments/dev output -raw runtime_api_email
+$WppconnectBaseUrl = tofu -chdir=infra/terraform/environments/dev output -raw wppconnect_base_url
 $ArtifactRepoUrl = tofu -chdir=infra/terraform/environments/dev output -raw artifact_repo_url
 $RepoParts = $ArtifactRepoUrl.Split("/")
 $ArRepo = $RepoParts[2]
@@ -64,6 +92,7 @@ $env:AR_REPO = $ArRepo
 $env:PROJECT_ID = $ProjectId
 $env:CORS_ORIGINS = $CorsOrigins
 $env:FIREBASE_PROJECT_ID = $FirebaseProjectId
+$env:WPPCONNECT_BASE_URL = $WppconnectBaseUrl
 & scripts/gcp/deploy-backend.ps1
 
 Write-Host "==> Deploy frontend (Firebase Hosting)" -ForegroundColor Cyan

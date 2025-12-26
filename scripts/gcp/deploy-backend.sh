@@ -18,6 +18,9 @@ IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:lates
 echo "==> Build/push: ${IMAGE_URI}"
 gcloud builds submit --tag "${IMAGE_URI}" ./backend
 
+# Cloud Run URL is stable across revisions; we use it for WPPConnect webhook callbacks.
+SERVICE_URL=$(gcloud run services describe "${SERVICE_NAME}" --region "${REGION}" --format="value(status.url)" 2>/dev/null || echo "")
+
 echo "==> Update Cloud Run image: ${SERVICE_NAME}"
 CMD=(gcloud run services update "${SERVICE_NAME}"
   --image "${IMAGE_URI}"
@@ -51,6 +54,13 @@ if [ -n "${cors_to_set}" ]; then
   CMD+=(--update-env-vars="^;^CORS_ORIGINS=${cors_to_set}")
 else
   echo "==> Not updating CORS_ORIGINS (no CORS_ORIGINS or FIREBASE_PROJECT_ID provided)."
+fi
+
+if [ -n "${SERVICE_URL}" ]; then
+  echo "==> Updating PUBLIC_BASE_URL: ${SERVICE_URL}"
+  CMD+=(--update-env-vars="^;^PUBLIC_BASE_URL=${SERVICE_URL}")
+else
+  echo "==> Not updating PUBLIC_BASE_URL (failed to read service URL)."
 fi
 
 "${CMD[@]}"

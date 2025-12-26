@@ -55,12 +55,18 @@ TXAI Support runs with **local ↔ cloud parity** - same code, different infrast
 | Variable | Description | Local | Cloud |
 |----------|-------------|-------|-------|
 | `FIRESTORE_EMULATOR_HOST` | Firestore emulator | `firebase-emulator:8080` | (not set) |
+| `FIREBASE_AUTH_EMULATOR_HOST` | Auth emulator | `firebase-emulator:9099` | (not set) |
 | `GCP_PROJECT_ID` | GCP project | `local-dev` | Your project ID |
 | `REDIS_URL` | Redis connection | `redis://redis:6379` | `rediss://...` (TLS) |
 | `STORAGE_EMULATOR_HOST` | GCS emulator | `http://fake-gcs:4443` | (not set) |
 | `GCS_BUCKET` | Upload bucket | `txai-uploads` | `project-uploads` |
 | `JWT_SECRET` | JWT signing key | `.env` file | Secret Manager |
 | `ADMIN_DEFAULT_PASSWORD` | Initial admin password | `.env` file | Secret Manager |
+| `WHATSAPP_ENABLED` | Enable WhatsApp integration | `true` | `true/false` |
+| `WHATSAPP_DRIVER` | WhatsApp driver | `server` | `server/direct` |
+| `WPPCONNECT_SECRET_KEY` | WPPConnect-Server shared secret | `.env` file | Secret Manager |
+| `WPPCONNECT_WEBHOOK_SECRET` | Webhook token for backend endpoint | `.env` file | Secret Manager |
+| `GCS_PUBLIC_HOST` | Public host for fake-gcs URLs | `http://localhost:4443` | (not set) |
 
 ### Frontend
 

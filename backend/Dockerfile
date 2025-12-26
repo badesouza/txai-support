@@ -31,29 +31,8 @@ RUN npm run build
 FROM base AS production
 WORKDIR /app
 
-# Install Chrome and dependencies for WPPConnect/Puppeteer in Alpine
-# These packages are required for headless Chromium to work properly
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    ttf-dejavu \
-    dbus \
-    mesa-gl \
-    libstdc++ \
-    udev \
-    tzdata \
-    && rm -rf /var/cache/apk/*
-
 # Set to production environment
 ENV NODE_ENV=production
-ENV TZ=America/Sao_Paulo
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Copy node_modules from deps stage
 COPY --from=deps /app/node_modules ./node_modules
@@ -64,18 +43,13 @@ COPY --from=builder /app/package*.json ./
 
 # Copy startup script
 COPY startup.sh ./
-RUN chmod +x startup.sh
+# Ensure the script works when building from Windows (CRLF) and Unix (LF)
+# by normalizing line-endings inside the image.
+RUN sed -i 's/\r$//' startup.sh && chmod +x startup.sh
 
 # No local directories needed - all state is external:
 # - Files → GCS
 # - WhatsApp sessions → Redis
-
-# Expose port
-EXPOSE 3001
-
-# Health check (longer start-period to allow for seeding)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start application
 CMD ["./startup.sh"]
