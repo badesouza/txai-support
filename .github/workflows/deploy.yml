@@ -55,7 +55,7 @@ jobs:
   # Determine deployment parameters
   determine-deployment:
     name: Determine Deployment Parameters
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.params.outputs.environment }}
       components: ${{ steps.params.outputs.components }}
@@ -116,7 +116,7 @@ jobs:
     name: Deploy Infrastructure
     needs: [determine-deployment]
     if: contains(fromJSON('["all", "infra", "infra-backend"]'), needs.determine-deployment.outputs.components)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     environment: ${{ needs.determine-deployment.outputs.environment }}
     outputs:
       backend_url: ${{ steps.outputs.outputs.backend_url }}
@@ -161,7 +161,7 @@ jobs:
         run: |
           tofu apply -auto-approve \
             -input=false \
-            -lock-timeout=30m \
+            -lock-timeout=2h \
             -parallelism=20 \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
             -var="region=${{ vars.GCP_REGION || 'us-central1' }}" \
@@ -188,7 +188,7 @@ jobs:
       always() && 
       contains(fromJSON('["all", "backend", "infra-backend", "backend-frontend"]'), needs.determine-deployment.outputs.components) &&
       (needs.deploy-infra.result == 'success' || needs.deploy-infra.result == 'skipped')
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     environment: ${{ needs.determine-deployment.outputs.environment }}
     outputs:
       backend_url: ${{ steps.deploy.outputs.backend_url }}
@@ -208,6 +208,19 @@ jobs:
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Enable Tofu plugin cache
+        run: |
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> $GITHUB_ENV
+
+      - name: Cache Tofu plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', needs.determine-deployment.outputs.environment)) }}
+          restore-keys: |
+            ${{ runner.os }}-tofu-
 
       - name: Get Terraform Outputs
         id: tf-outputs
@@ -249,10 +262,11 @@ jobs:
           IMAGE_LATEST="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE_NAME}:latest"
           
           echo "Building image: ${IMAGE_URI}"
-          gcloud builds submit --tag "${IMAGE_URI}" ./backend
+          docker build -t "${IMAGE_URI}" -t "${IMAGE_LATEST}" ./backend
           
-          # Tag as latest
-          gcloud artifacts docker tags add "${IMAGE_URI}" "${IMAGE_LATEST}" 2>/dev/null || true
+          echo "Pushing image..."
+          docker push "${IMAGE_URI}"
+          docker push "${IMAGE_LATEST}"
           
           echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
 
@@ -304,7 +318,7 @@ jobs:
       contains(fromJSON('["all", "frontend", "backend-frontend"]'), needs.determine-deployment.outputs.components) &&
       (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
     needs: [determine-deployment, deploy-infra, deploy-backend]
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     environment: ${{ needs.determine-deployment.outputs.environment }}
     steps:
       - uses: actions/checkout@v4
@@ -325,6 +339,19 @@ jobs:
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Enable Tofu plugin cache
+        run: |
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> $GITHUB_ENV
+
+      - name: Cache Tofu plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', needs.determine-deployment.outputs.environment)) }}
+          restore-keys: |
+            ${{ runner.os }}-tofu-
 
       - name: Get Backend URL
         id: backend-url
@@ -366,7 +393,7 @@ jobs:
     name: Deployment Summary
     if: always()
     needs: [deploy-infra, deploy-backend, deploy-frontend]
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Print Summary
         run: |
