@@ -34,7 +34,6 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
 
   // Stop polling
   const stopPolling = useCallback(() => {
-    console.log('🛑 Parando polling');
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
@@ -146,7 +145,6 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
         message.success('WhatsApp desconectado com sucesso');
       }
     } catch (error) {
-      console.error('Erro ao desconectar:', error);
       if (mountedRef.current) message.error('Erro ao desconectar o WhatsApp');
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -163,7 +161,6 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
         startPolling();
       }
     } catch (error) {
-      console.error('Erro ao reconectar:', error);
       if (mountedRef.current) message.error('Erro ao reconectar o WhatsApp');
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -204,16 +201,13 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
     );
   }
 
+  const showQrPlaceholder = !isConnected && !qrCode;
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-      {!isConnected && !qrCode && (
+      {showQrPlaceholder && (
         <div className="text-center my-5">
           <Text className="text-gray-700 dark:text-gray-300">Inicializando conexão do WhatsApp...</Text>
-        </div>
-      )}
-
-      {!isConnected && !qrCode && (
-        <div className="text-center my-5">
           <div className="flex justify-center items-center my-5">
             <div className="w-full max-w-xs sm:max-w-sm md:max-w-md aspect-square border-2 border-gray-300 rounded-lg flex items-center justify-center bg-gray-100">
               <div className="text-center px-4">
@@ -245,8 +239,6 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
                       border: 'solid',
                       borderRadius: '2px'
                     }}
-                    onLoad={() => console.log('📱 QR Code image loaded successfully')}
-                    onError={() => console.error('❌ QR Code image failed to load')}
                   />
                 </div>
               </div>

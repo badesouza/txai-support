@@ -1,25 +1,17 @@
-// Este arquivo pode ser removido se não houver mais uso de API_CONFIG.BASE_URL.
-// Caso precise manter, exporte a variável de ambiente:
+export const DEFAULT_API_BASE_URL = 'http://localhost:3001/api';
 
-export const BASE_URL = process.env.REACT_APP_API_URL;
-
-// API Configuration
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
-
-// Função auxiliar para obter a URL base da API
-const getApiBaseUrl = (): string => {
-  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
-  
-  // Se a URL não começa com http, assumir que é um caminho relativo
+export const resolveApiBaseUrl = (apiUrl = process.env.REACT_APP_API_URL || DEFAULT_API_BASE_URL): string => {
   if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
     if (typeof window !== 'undefined') {
       return `${window.location.protocol}//${window.location.host}${apiUrl}`;
     }
     return `http://localhost:3001${apiUrl}`;
   }
-  
+
   return apiUrl;
 };
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 // Função para construir URLs de imagens que funciona em dev e produção
 export const getImageUrl = (imagePath: string): string => {
@@ -33,8 +25,7 @@ export const getImageUrl = (imagePath: string): string => {
   }
 
   try {
-    // Usar a função auxiliar para obter a URL base correta
-    const baseUrl = getApiBaseUrl();
+    const baseUrl = API_BASE_URL;
     
     // Se a URL base é uma URL completa, extrair o domínio
     if (baseUrl.startsWith('http://') || baseUrl.startsWith('https://')) {

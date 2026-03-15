@@ -10,7 +10,8 @@
     "dev:services:logs": "docker compose -f docker-compose.dev.yml logs -f",
     "dev:services:stop": "docker compose -f docker-compose.dev.yml down",
     "dev:services:restart": "docker compose -f docker-compose.dev.yml restart",
-    "dev:services:status": "docker compose -f docker-compose.dev.yml ps"
+    "dev:services:status": "docker compose -f docker-compose.dev.yml ps",
+    "smoke": "npm --prefix e2e test"
   },
   "keywords": [
     "helpdesk",

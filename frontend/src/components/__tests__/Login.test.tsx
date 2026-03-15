@@ -15,6 +15,7 @@ jest.mock('../../config/axios', () => ({
 
 // Mock console methods
 const mockConsoleError = jest.spyOn(console, 'error').mockImplementation();
+const mockStorageSetItem = jest.spyOn(Storage.prototype, 'setItem');
 
 const mockApi = api as jest.Mocked<typeof api>;
 
@@ -35,10 +36,12 @@ describe('Login Component', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConsoleError.mockClear();
+    mockStorageSetItem.mockClear();
   });
 
   afterAll(() => {
     mockConsoleError.mockRestore();
+    mockStorageSetItem.mockRestore();
   });
 
   it('should render login form', () => {
@@ -48,30 +51,6 @@ describe('Login Component', () => {
     expect(screen.getByLabelText('E-mail')).toBeInTheDocument();
     expect(screen.getByLabelText('Senha')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Acessar' })).toBeInTheDocument();
-  });
-
-  it('should show validation errors for empty fields', async () => {
-    render(<LoginWithRouter />);
-
-    const submitButton = screen.getByRole('button', { name: 'Acessar' });
-    fireEvent.click(submitButton);
-
-    // O formulário usa required, então o browser impediria o submit.
-    // Aqui apenas garantimos que nada quebre ao clicar sem preencher.
-    expect(submitButton).toBeInTheDocument();
-  });
-
-  it('should show validation error for invalid email', async () => {
-    render(<LoginWithRouter />);
-
-    const emailInput = screen.getByLabelText('E-mail');
-    const submitButton = screen.getByRole('button', { name: 'Acessar' });
-
-    fireEvent.change(emailInput, { target: { value: 'invalid-email' } });
-    fireEvent.click(submitButton);
-
-    // Sem validação customizada, apenas asseguramos que a UI não quebre
-    expect(submitButton).toBeInTheDocument();
   });
 
   it('should login successfully with valid credentials', async () => {
@@ -104,6 +83,13 @@ describe('Login Component', () => {
         email: 'test@example.com',
         password: 'password123'
       });
+    });
+    await waitFor(() => {
+      expect(mockStorageSetItem).toHaveBeenCalledWith('token', 'mock-jwt-token');
+      expect(mockStorageSetItem).toHaveBeenCalledWith(
+        'user',
+        JSON.stringify(mockResponse.data.user)
+      );
     });
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/home');
@@ -156,36 +142,5 @@ describe('Login Component', () => {
     await waitFor(() => {
       expect(mockConsoleError).toHaveBeenCalledWith('Erro no login:', expect.any(Error));
     });
-  });
-
-  it('should show loading state during login', async () => {
-    mockApi.post.mockImplementation(() => 
-      new Promise(resolve => setTimeout(() => resolve({
-        data: {
-          user: { id: 1, name: 'Test User', email: 'test@example.com', profile: 'ADMIN' },
-          token: 'mock-jwt-token'
-        }
-      }), 100))
-    );
-
-    render(<LoginWithRouter />);
-
-    const emailInput = screen.getByLabelText('E-mail');
-    const passwordInput = screen.getByLabelText('Senha');
-    const submitButton = screen.getByRole('button', { name: 'Acessar' });
-
-    fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
-    fireEvent.change(passwordInput, { target: { value: 'password123' } });
-    fireEvent.click(submitButton);
-
-    // Sem indicador textual de loading, apenas garante que o botão existe
-    expect(submitButton).toBeInTheDocument();
-  });
-
-  it('should toggle password visibility', async () => {
-    render(<LoginWithRouter />);
-
-    // O componente não tem botão de visibilidade. Removemos esse teste.
-    expect(screen.getByLabelText('Senha')).toBeInTheDocument();
   });
 });
