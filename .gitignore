@@ -169,6 +169,8 @@ tokens/
 **/.terraform.lock.hcl
 **/*.tfstate
 **/*.tfstate.*
+**/tfplan
+**/destroy.tfplan
 **/crash.log
 **/crash.*.log
 
@@ -211,6 +213,9 @@ WHATSAPP-*.md
 
 # Test reports / generated artifacts
 frontend/playwright-report/
+e2e/node_modules/
+e2e/playwright-report/
+e2e/test-results/
 
 # =============================================================================
 # Testing
@@ -303,3 +308,4 @@ infra/terraform/environments/dev/terraform.tfvars
 
 # Deployment state files (generated during deployment)
 scripts/gcp/.deploy-state/
+infra/deploy-metadata/

@@ -16,10 +16,10 @@ Deploy TXAI Support to Google Cloud Platform.
 │         │                   │                      │               │
 │         │            ┌──────┴──────┐               │               │
 │         │            ▼             ▼               ▼               │
-│         │      ┌──────────┐  ┌──────────┐   ┌──────────────┐      │
-│         │      │Firestore │  │  Redis   │   │ Persistent   │      │
-│         │      │          │  │  Cloud   │   │ SSD Disk     │      │
-│         │      └──────────┘  └──────────┘   └──────────────┘      │
+│         │      ┌──────────┐                 ┌──────────────┐      │
+│         │      │Firestore │                 │ Persistent   │      │
+│         │      │          │                 │ SSD Disk     │      │
+│         │      └──────────┘                 └──────────────┘      │
 │         │            │                                             │
 │         │            ▼                                             │
 │         │      ┌──────────┐                                        │
@@ -38,8 +38,7 @@ Deploy TXAI Support to Google Cloud Platform.
 | **WPPConnect VM** | ~$5-7 |
 | Cloud Firestore | ~$0-2 |
 | Cloud Storage | ~$0.02 |
-| Redis Cloud | Free tier |
-| **Total** | **~$10-15/month** |
+| **Total** | **~$5-14/month** |
 
 ## Prerequisites
 
@@ -91,6 +90,24 @@ This will:
 cd infra/terraform/environments/dev
 tofu apply
 ```
+
+## CI Handoff
+
+Once the bootstrap values are stored in GitHub Actions secrets, GitHub can take over day-to-day deploy responsibility from a local machine.
+
+```bash
+# Shared backend for local + CI
+TF_STATE_BUCKET=your-project-tfstate
+TF_STATE_PREFIX=txai-support/dev
+```
+
+Before relying on CI as the primary deploy path:
+
+1. Confirm local OpenTofu is already using `gs://$TF_STATE_BUCKET/txai-support/dev/default.tfstate`.
+2. Back up the current state once with `tofu state pull`.
+3. Add `GCP_WIF_PROVIDER`, `GCP_TF_SERVICE_ACCOUNT`, `TF_STATE_BUCKET`, and `FIREBASE_TOKEN` to GitHub Actions secrets.
+4. Add `GCP_PROJECT_ID` to the `dev` GitHub environment.
+5. Trigger `deploy.yml` with `components=infra` and confirm it can read outputs from the shared state.
 
 ## Post-Deploy: Set Secrets
 
@@ -169,4 +186,5 @@ curl $(tofu output -raw wppconnect_vm_url)/api/health
 
 - [Local vs Cloud](../architecture/LOCAL_VS_CLOUD.md)
 - [Terraform Reference](terraform.md)
+- [Infrastructure Destruction Guide](../deployment/DESTRUCTION_GUIDE.md)
 - [Troubleshooting](../troubleshooting.md)

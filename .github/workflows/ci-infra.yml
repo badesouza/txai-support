@@ -27,9 +27,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: ./.github/actions/setup-tofu-cache
         with:
           tofu_version: 1.8.6
+          lockfile: infra/terraform/environments/dev/.terraform.lock.hcl
 
       - name: Check formatting
         run: tofu fmt -check -recursive
@@ -45,9 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: ./.github/actions/setup-tofu-cache
         with:
           tofu_version: 1.8.6
+          lockfile: infra/terraform/environments/${{ matrix.environment }}/.terraform.lock.hcl
 
       - name: Initialize (no backend)
         run: tofu init -backend=false
@@ -70,22 +72,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: ./.github/actions/setup-tofu-cache
         with:
           tofu_version: 1.8.6
-
-      - name: Enable Tofu plugin cache
-        run: |
-          mkdir -p "$HOME/.terraform.d/plugin-cache"
-          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> $GITHUB_ENV
-
-      - name: Cache Tofu plugins
-        uses: actions/cache@v4
-        with:
-          path: ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', matrix.environment)) }}
-          restore-keys: |
-            ${{ runner.os }}-tofu-
+          lockfile: infra/terraform/environments/${{ matrix.environment }}/.terraform.lock.hcl
 
       - uses: google-github-actions/auth@v2
         with:
@@ -97,7 +87,7 @@ jobs:
         run: |
           tofu init \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-            -backend-config="prefix=terraform/${{ matrix.environment }}"
+            -backend-config="prefix=txai-support/${{ matrix.environment }}"
         working-directory: infra/terraform/environments/${{ matrix.environment }}
 
       - name: Plan
@@ -106,7 +96,6 @@ jobs:
           tofu plan \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
             -var="region=${{ vars.GCP_REGION || 'us-central1' }}" \
-            -var="redis_enabled=false" \
             -no-color \
             -out=tfplan 2>&1 | tee plan_output.txt
           echo "plan<<EOF" >> $GITHUB_OUTPUT

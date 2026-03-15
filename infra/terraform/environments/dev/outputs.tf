@@ -8,6 +8,11 @@ output "artifact_repo_url" {
   description = "Base repo URL for docker images"
 }
 
+output "wppconnect_artifact_repo_url" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.wppconnect_docker.repository_id}"
+  description = "Base repo URL for WPPConnect custom docker images"
+}
+
 output "firebase_hosting_url" {
   value       = "https://${var.project_id}.web.app"
   description = "Firebase Hosting primary URL"
@@ -36,6 +41,11 @@ output "backend_cloud_run_url" {
   description = "Cloud Run URL for backend API"
 }
 
+output "backend_public_url" {
+  value       = local.backend_public_base_url
+  description = "Backend public URL via custom domain"
+}
+
 output "backend_service_name" {
   value       = google_cloud_run_v2_service.backend.name
   description = "Cloud Run service name for backend API"
@@ -47,8 +57,28 @@ output "backend_service_name" {
 # Note: wppconnect_vm_ip, wppconnect_vm_url, wppconnect_vm_ssh are in wppconnect-vm.tf
 
 output "wppconnect_base_url" {
-  value       = "http://${google_compute_address.wppconnect_vm.address}:21465"
-  description = "WPPConnect-Server base URL (auto-synced to backend)"
+  value       = local.wppconnect_base_url
+  description = "WPPConnect base URL through VM Caddy custom domain"
+}
+
+output "wppconnect_fqdn" {
+  value       = local.wppconnect_fqdn
+  description = "WPPConnect custom domain hostname"
+}
+
+output "backend_fqdn" {
+  value       = local.backend_fqdn
+  description = "Backend custom domain hostname"
+}
+
+output "backend_domain_mapping_records" {
+  value       = try(google_cloud_run_domain_mapping.backend[0].status[0].resource_records, [])
+  description = "DNS records required by Cloud Run domain mapping"
+}
+
+output "dns_records_managed_by_terraform" {
+  value       = var.manage_dns_records
+  description = "Whether Terraform manages DNS record sets"
 }
 
 output "ci_deployer_email" {
@@ -61,28 +91,4 @@ output "runtime_api_email" {
 
 output "runtime_whatsapp_email" {
   value = google_service_account.runtime_whatsapp.email
-}
-
-# =============================================================================
-# Redis Cloud Outputs
-# =============================================================================
-
-output "redis_enabled" {
-  value       = var.redis_enabled
-  description = "Whether Redis Cloud is enabled"
-}
-
-output "redis_subscription_id" {
-  value       = var.redis_enabled ? rediscloud_essentials_subscription.main[0].id : ""
-  description = "Redis Cloud Essentials subscription ID"
-}
-
-output "redis_database_id" {
-  value       = var.redis_enabled ? rediscloud_essentials_database.sessions[0].id : ""
-  description = "Redis Cloud Essentials database ID"
-}
-
-output "redis_secret_id" {
-  value       = var.redis_enabled ? google_secret_manager_secret.redis_url[0].secret_id : ""
-  description = "Secret Manager secret ID for Redis URL"
 }

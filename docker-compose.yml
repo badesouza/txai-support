@@ -28,26 +28,6 @@ services:
       start_period: 30s
 
   # =============================================================================
-  # Redis - for WhatsApp sessions and caching
-  # =============================================================================
-  redis:
-    image: redis:7-alpine
-    container_name: txai-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - txai-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # =============================================================================
   # GCS Emulator - https://github.com/fsouza/fake-gcs-server
   # Bucket is auto-created via mounted directory structure
   # =============================================================================
@@ -75,22 +55,21 @@ services:
 
   # =============================================================================
   # WPPConnect Server - WhatsApp API (separate container)
-  # Image: https://hub.docker.com/r/wppconnect/server-cli
-  # Docs:  https://wppconnect.io/docs/wppconnect-server/
+  # Built from upstream: https://github.com/wppconnect-team/wppconnect-server
+  # Runtime docs:       https://wppconnect.io/docs/wppconnect-server/
   # =============================================================================
   wppconnect-server:
-    image: wppconnect/server-cli:latest
-    # wppconnect/server-cli is amd64-only; allow override if you have a native build.
-    platform: ${WPPCONNECT_PLATFORM:-linux/amd64}
+    build:
+      context: ./wppconnect
+      dockerfile: Dockerfile
+      args:
+        WPPCONNECT_REF: ${WPPCONNECT_REF:-main}
+    image: txai-wppconnect:local
     container_name: txai-wppconnect-server
     restart: unless-stopped
     ports:
       - "21465:21465"
-    command: ["--config", "/usr/src/wpp-server/config.json"]
     environment:
-      # NOTE: WPPConnect-Server uses a configured secret key to generate tokens.
-      # We pass it via env here; if the image expects a config file instead,
-      # we will mount a config in a follow-up commit.
       PORT: 21465
       SECRET_KEY: ${WPPCONNECT_SECRET_KEY:-THISISMYSECURETOKEN}
       TZ: America/Sao_Paulo
@@ -106,7 +85,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "require('http').get('http://localhost:21465/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+          "require('http').get('http://localhost:21465/api-docs', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
         ]
       interval: 10s
       timeout: 5s
@@ -132,8 +111,6 @@ services:
       FIRESTORE_EMULATOR_HOST: firebase-emulator:8082
       FIREBASE_AUTH_EMULATOR_HOST: firebase-emulator:9099
       GCP_PROJECT_ID: local-dev
-      # Redis
-      REDIS_URL: redis://redis:6379
       # Storage (GCS with emulator)
       STORAGE_DRIVER: gcs
       STORAGE_EMULATOR_HOST: http://fake-gcs:4443
@@ -141,8 +118,6 @@ services:
       GCS_PROJECT_ID: local-dev
       GCS_PUBLIC_HOST: http://localhost:4443
       GCS_UPLOADS_PREFIX: uploads
-      # WhatsApp (sessions stored in Redis, no filesystem)
-      WHATSAPP_TOKEN_STORE: redis
       # WhatsApp driver (direct vs wppconnect-server)
       WHATSAPP_DRIVER: server
       WPPCONNECT_BASE_URL: http://wppconnect-server:21465
@@ -156,13 +131,9 @@ services:
       ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-admin123}
     ports:
       - "${BACKEND_PORT:-3001}:3001"
-    # No volume mounts needed - all state is external:
-    # - Files → GCS (via STORAGE_DRIVER=gcs)
-    # - WhatsApp sessions → Redis (via WHATSAPP_TOKEN_STORE=redis)
+    # No volume mounts needed - all state is external.
     depends_on:
       firebase-emulator:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       fake-gcs:
         condition: service_healthy
@@ -201,8 +172,6 @@ services:
 
 volumes:
   firebase_data:
-    driver: local
-  redis_data:
     driver: local
   wppconnect_data:
     driver: local

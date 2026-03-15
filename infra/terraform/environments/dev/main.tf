@@ -3,6 +3,7 @@ locals {
     "run.googleapis.com",
     "cloudbuild.googleapis.com",
     "artifactregistry.googleapis.com",
+    "dns.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
     "serviceusage.googleapis.com",
@@ -34,6 +35,16 @@ resource "google_artifact_registry_repository" "docker" {
   repository_id = var.artifact_repo_id
   format        = "DOCKER"
   description   = "txai-support Docker images"
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_artifact_registry_repository" "wppconnect_docker" {
+  project       = var.project_id
+  location      = var.region
+  repository_id = var.wppconnect_artifact_repo_id
+  format        = "DOCKER"
+  description   = "WPPConnect custom Docker images"
 
   depends_on = [google_project_service.apis]
 }
@@ -97,12 +108,18 @@ resource "google_service_account_iam_member" "runtime_api_token_creator" {
 }
 
 locals {
+  wppconnect_fqdn = "${var.wpp_subdomain}.${var.domain_name}"
+  backend_fqdn    = "${var.backend_subdomain}.${var.domain_name}"
+
+  wppconnect_base_url     = "https://${local.wppconnect_fqdn}"
+  backend_public_base_url = "https://${local.backend_fqdn}"
+
+  default_wppconnect_image   = "${var.region}-docker.pkg.dev/${var.project_id}/${var.wppconnect_artifact_repo_id}/wppconnect-server:latest"
+  effective_wppconnect_image = var.wppconnect_image != "" ? var.wppconnect_image : local.default_wppconnect_image
+
   # Firebase Hosting URLs for CORS
   firebase_primary_url   = "https://${var.project_id}.web.app"
   firebase_alternate_url = "https://${var.project_id}.firebaseapp.com"
-
-  # WPPConnect-Server base URL - points to VM
-  wppconnect_base_url = "http://${google_compute_address.wppconnect_vm.address}:21465"
 
   default_backend_env_vars = {
     STORAGE_DRIVER = "gcs"
@@ -117,16 +134,12 @@ locals {
     WPPCONNECT_SESSION        = var.wppconnect_session
     WPPCONNECT_SECRET_KEY     = var.wppconnect_secret_key
     WPPCONNECT_WEBHOOK_SECRET = var.wppconnect_webhook_secret
+    PUBLIC_BASE_URL           = local.backend_public_base_url
     # Support both Firebase domains (backend accepts CORS_ORIGINS as CSV)
     CORS_ORIGINS = "${local.firebase_primary_url},${local.firebase_alternate_url}"
   }
 
-  # Redis configuration for WPPConnect session storage
-  redis_env_vars = var.redis_enabled ? {
-    WHATSAPP_TOKEN_STORE = "redis"
-  } : {}
-
-  effective_backend_env_vars = merge(local.default_backend_env_vars, local.redis_env_vars, var.backend_env_vars)
+  effective_backend_env_vars = merge(local.default_backend_env_vars, var.backend_env_vars)
 }
 
 resource "google_project_iam_member" "runtime_whatsapp_roles" {
@@ -135,6 +148,7 @@ resource "google_project_iam_member" "runtime_whatsapp_roles" {
     "roles/storage.objectAdmin",
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
+    "roles/artifactregistry.reader",
   ])
 
   project = var.project_id
@@ -147,7 +161,7 @@ resource "google_storage_bucket" "uploads" {
   name                        = local.uploads_bucket_name
   location                    = local.gcs_location
   uniform_bucket_level_access = true
-  force_destroy               = false
+  force_destroy               = true
 
   depends_on = [google_project_service.apis]
 }
@@ -221,19 +235,6 @@ resource "google_cloud_run_v2_service" "backend" {
         }
       }
 
-      # Redis URL from Secret Manager (for WPPConnect session storage)
-      dynamic "env" {
-        for_each = var.redis_enabled ? [1] : []
-        content {
-          name = "REDIS_URL"
-          value_source {
-            secret_key_ref {
-              secret  = google_secret_manager_secret.redis_url[0].secret_id
-              version = "latest"
-            }
-          }
-        }
-      }
     }
   }
 
@@ -260,6 +261,49 @@ resource "google_cloud_run_v2_service_iam_member" "backend_invoker" {
   member   = "allUsers"
 }
 
+resource "google_cloud_run_domain_mapping" "backend" {
+  provider = google-beta
+  count    = var.backend_custom_domain_enabled ? 1 : 0
+
+  location = var.region
+  name     = local.backend_fqdn
+
+  metadata {
+    namespace = var.project_id
+  }
+
+  spec {
+    route_name = google_cloud_run_v2_service.backend.name
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_cloud_run_v2_service.backend,
+  ]
+}
+
+resource "google_dns_record_set" "wppconnect_public_a" {
+  provider = google.dns
+  count    = var.manage_dns_records && var.cloud_dns_zone_name != "" ? 1 : 0
+
+  managed_zone = var.cloud_dns_zone_name
+  name         = "${local.wppconnect_fqdn}."
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_address.wppconnect_vm.address]
+}
+
+resource "google_dns_record_set" "backend_public_cname" {
+  provider = google.dns
+  count    = var.manage_dns_records && var.cloud_dns_zone_name != "" ? 1 : 0
+
+  managed_zone = var.cloud_dns_zone_name
+  name         = "${local.backend_fqdn}."
+  type         = "CNAME"
+  ttl          = 300
+  rrdatas      = [var.backend_custom_domain_dns_target]
+}
+
 # =============================================================================
 # Sync WPPConnect VM IP to Backend (automated)
 # =============================================================================
@@ -268,18 +312,21 @@ resource "google_cloud_run_v2_service_iam_member" "backend_invoker" {
 # Triggers whenever the VM IP changes.
 resource "null_resource" "sync_wppconnect_url_to_backend" {
   triggers = {
-    wppconnect_ip   = google_compute_address.wppconnect_vm.address
-    backend_service = google_cloud_run_v2_service.backend.name
+    wppconnect_base_url = local.wppconnect_base_url
+    backend_public_url  = local.backend_public_base_url
+    backend_service     = google_cloud_run_v2_service.backend.name
   }
 
   provisioner "local-exec" {
     command = <<-EOT
-      echo "Syncing WPPCONNECT_BASE_URL to backend..."
+      set -e
+      echo "Syncing WPPCONNECT_BASE_URL and PUBLIC_BASE_URL to backend..."
       gcloud run services update ${google_cloud_run_v2_service.backend.name} \
         --region=${var.region} \
         --project=${var.project_id} \
-        --update-env-vars="WPPCONNECT_BASE_URL=http://${google_compute_address.wppconnect_vm.address}:21465"
-      echo "✅ Backend updated with WPPCONNECT_BASE_URL=http://${google_compute_address.wppconnect_vm.address}:21465"
+        --update-env-vars="WPPCONNECT_BASE_URL=${local.wppconnect_base_url},PUBLIC_BASE_URL=${local.backend_public_base_url}"
+      echo "✅ Backend updated with WPPCONNECT_BASE_URL=${local.wppconnect_base_url}"
+      echo "✅ Backend updated with PUBLIC_BASE_URL=${local.backend_public_base_url}"
     EOT
   }
 

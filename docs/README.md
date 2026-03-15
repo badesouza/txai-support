@@ -23,7 +23,6 @@
 │                                                                             │
 │   Storage: fake-gcs :4443            Storage: Cloud Storage                 │
 │   Database: Firebase Emulator        Database: Cloud Firestore              │
-│   Redis: Docker :6379                Redis: Redis Cloud (TLS)               │
 │                                                                             │
 │   Cost: $0                           Cost: ~$10-15/month                    │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -38,14 +37,13 @@
 | **WhatsApp** | WPPConnect Docker :21465 | **WPPConnect GCE VM** |
 | **Database** | Firebase Emulator | Cloud Firestore |
 | **Storage** | fake-gcs-server | Cloud Storage |
-| **Redis** | Redis container | Redis Cloud |
 
 ## Quick Links
 
 | Guide | Description |
 |-------|-------------|
 | [Local vs Cloud](architecture/LOCAL_VS_CLOUD.md) | Environment differences |
-| [Docker Setup](docker.md) | Local development |
+| [Local Development](LOCAL_DEVELOPMENT.md) | Hot-reload local setup |
 | [Deployment Guide](infra/deployment-guide.md) | Full GCP deploy |
 | [Terraform](infra/terraform.md) | Infrastructure as Code |
 | [Troubleshooting](troubleshooting.md) | Common issues |
@@ -57,7 +55,7 @@ txai-support/
 ├── .env.local              # Shared (PROJECT_ID, REGION)
 ├── backend/.env.local      # Backend secrets (JWT, WPPConnect)
 ├── frontend/.env.local     # Frontend config (API URL)
-└── infra/.env.local        # Terraform secrets (Redis Cloud API keys)
+└── infra/.env.local        # Terraform/deploy variables
 ```
 
 ## Service URLs
@@ -65,7 +63,7 @@ txai-support/
 ### Local
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:8081 |
+| Frontend | http://localhost:3000 |
 | Backend API | http://localhost:3001/api |
 | WPPConnect | http://localhost:21465 |
 | Firebase UI | http://localhost:4000 |

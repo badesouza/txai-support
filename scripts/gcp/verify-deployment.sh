@@ -166,37 +166,6 @@ else
   ((WARNINGS++))
 fi
 
-# Section 4.5: Redis Cloud (for WPPConnect sessions)
-echo ""
-log_info "Checking Redis Configuration..."
-
-REDIS_ENABLED=$(cd "${TERRAFORM_DIR}" && tofu output -raw redis_enabled 2>/dev/null || echo "false")
-
-if [ "${REDIS_ENABLED}" = "true" ]; then
-  log_success "Redis Cloud is enabled"
-  ((PASSED++))
-
-  REDIS_SECRET_ID=$(cd "${TERRAFORM_DIR}" && tofu output -raw redis_secret_id 2>/dev/null || echo "")
-  if [ -n "${REDIS_SECRET_ID}" ]; then
-    # Check if secret exists in Secret Manager
-    if check "Redis URL secret exists" gcloud secrets describe "${REDIS_SECRET_ID}"; then
-      # Check if secret has a version
-      warn_check "Redis URL secret has active version" gcloud secrets versions list "${REDIS_SECRET_ID}" --filter="state=ENABLED" --limit=1
-    fi
-  else
-    log_warn "Redis secret ID not found in terraform outputs"
-    ((WARNINGS++))
-  fi
-
-  # Check if WHATSAPP_TOKEN_STORE and REDIS_URL are configured in Cloud Run
-  if [ -n "${ENV_VARS:-}" ]; then
-    warn_check "WHATSAPP_TOKEN_STORE is set" echo "${ENV_VARS}" | grep -q "WHATSAPP_TOKEN_STORE"
-    warn_check "REDIS_URL secret is configured" echo "${ENV_VARS}" | grep -q "REDIS_URL"
-  fi
-else
-  log_info "Redis Cloud is not enabled (WPPConnect will use file storage)"
-fi
-
 # Section 5: Permissions & Service Accounts
 echo ""
 log_info "Checking Service Accounts..."

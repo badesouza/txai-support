@@ -22,12 +22,12 @@ In dev mode, infrastructure services run in Docker containers while your applica
 │  │  Backend (npm run dev)      │───────│  :21465                │   │
 │  │  :3001                      │       └────────────────────────┘   │
 │  └─────────────────────────────┘       ┌────────────────────────┐   │
-│                │                       │  Redis                 │   │
-│                └───────────────────────│  :6379                 │   │
+│                │                       │  Fake GCS Server       │   │
+│                └───────────────────────│  :4443                 │   │
 │                                        └────────────────────────┘   │
 │                                        ┌────────────────────────┐   │
-│                                        │  Fake GCS Server       │   │
-│                                        │  :4443                 │   │
+│                                        │  Shared root env       │   │
+│                                        │  .env.local            │   │
 │                                        └────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -60,7 +60,7 @@ This will:
 1. Check and display all `.env.local` files (creating from templates if missing)
 2. Validate critical environment variables
 3. Spawn 3 terminal windows:
-   - **Terminal 1:** Docker services (Firebase, WPPConnect, Redis, GCS)
+   - **Terminal 1:** Docker services (Firebase, WPPConnect, GCS)
    - **Terminal 2:** Backend with hot reload (http://localhost:3001)
    - **Terminal 3:** Frontend with hot reload (http://localhost:3000)
 
@@ -75,7 +75,7 @@ If you prefer to start services manually:
 npm run dev:services
 ```
 
-This starts Firebase Emulator, WPPConnect Server, Redis, and Fake GCS in Docker containers.
+This starts Firebase Emulator, WPPConnect Server, and Fake GCS in Docker containers.
 
 #### 2. Start Backend (Terminal 1)
 
@@ -170,7 +170,6 @@ cd frontend && npm start
 | Firestore | localhost:8082 | Firestore emulator |
 | Auth | localhost:9099 | Firebase Auth emulator |
 | WPPConnect | http://localhost:21465 | WhatsApp API server |
-| Redis | localhost:6379 | Session storage |
 | Fake GCS | http://localhost:4443 | GCS emulator for file uploads |
 
 ## NPM Scripts Reference
@@ -239,7 +238,6 @@ npm run dev:services:logs
 # Specific service
 docker compose -f docker-compose.dev.yml logs -f firebase-emulator
 docker compose -f docker-compose.dev.yml logs -f wppconnect-server
-docker compose -f docker-compose.dev.yml logs -f redis
 docker compose -f docker-compose.dev.yml logs -f fake-gcs
 ```
 
@@ -252,7 +250,6 @@ docker compose -f docker-compose.dev.yml logs -f fake-gcs
    lsof -i :4000   # Firebase UI
    lsof -i :8082   # Firestore
    lsof -i :21465  # WPPConnect
-   lsof -i :6379   # Redis
    lsof -i :4443   # Fake GCS
    ```
 
@@ -272,17 +269,14 @@ docker compose -f docker-compose.dev.yml logs -f fake-gcs
 
 2. **Check environment variables:**
    ```bash
-   cat backend/.env.local | grep -E "(FIRESTORE|REDIS|GCS|WPPCONNECT)"
+   cat backend/.env.local | grep -E "(FIRESTORE|GCS|WPPCONNECT)"
    ```
 
 3. **Test connectivity:**
    ```bash
    # Firestore
    curl http://localhost:8082/
-   
-   # Redis
-   redis-cli ping
-   
+
    # WPPConnect
    curl http://localhost:21465/healthz
    
@@ -330,7 +324,7 @@ docker compose up -d
 ```
 
 ### Cloud Deployment
-See [deployment-firebase.md](deployment-firebase.md) for GCP deployment.
+See [infra/deployment-guide.md](infra/deployment-guide.md) for GCP deployment.
 
 ## Clean Up
 

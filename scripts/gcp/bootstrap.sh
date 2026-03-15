@@ -6,17 +6,9 @@
 
 set -euo pipefail
 
-# Color output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-log_info() { echo -e "${BLUE}==>${NC} $*"; }
-log_success() { echo -e "${GREEN}==>${NC} $*"; }
-log_warn() { echo -e "${YELLOW}==>${NC} $*"; }
-log_error() { echo -e "${RED}==>${NC} $*"; }
+# Shared helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
 
 # Required variables
 PROJECT_ID="${PROJECT_ID:-}"
@@ -51,34 +43,14 @@ echo "  GitHub Owner:  ${GITHUB_OWNER}"
 echo "  GitHub Repo:   ${GITHUB_REPO}"
 echo ""
 
-# Check if gcloud is installed
-if ! command -v gcloud &> /dev/null; then
-  log_error "gcloud CLI not found. Please install: https://cloud.google.com/sdk/docs/install"
-  exit 1
-fi
+require_command "gcloud" "Please install: https://cloud.google.com/sdk/docs/install"
+require_command "tofu" "Please install: brew install opentofu"
 
-# Check if tofu is installed
-if ! command -v tofu &> /dev/null; then
-  log_error "OpenTofu (tofu) not found. Please install: brew install opentofu"
-  exit 1
-fi
-
-# Verify gcloud authentication
 log_info "Verifying gcloud authentication..."
-if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" &> /dev/null; then
-  log_error "Not authenticated with gcloud. Run: gcloud auth login"
-  exit 1
-fi
-
-ACTIVE_ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)" | head -1)
+ACTIVE_ACCOUNT=$(require_gcloud_auth)
 log_success "Authenticated as: ${ACTIVE_ACCOUNT}"
 
-# Set active project
-log_info "Setting active project to ${PROJECT_ID}..."
-if ! gcloud config set project "${PROJECT_ID}" &> /dev/null; then
-  log_error "Failed to set project. Does the project exist?"
-  exit 1
-fi
+set_gcloud_project "${PROJECT_ID}"
 
 # Check if project has billing enabled
 log_info "Checking billing status..."
@@ -107,8 +79,7 @@ done
 log_success "Required APIs enabled"
 
 # Navigate to bootstrap directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_ROOT="$(resolve_repo_root "${SCRIPT_DIR}")"
 BOOTSTRAP_DIR="${REPO_ROOT}/infra/terraform/bootstrap"
 
 if [ ! -d "${BOOTSTRAP_DIR}" ]; then

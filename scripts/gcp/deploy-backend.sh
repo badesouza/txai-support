@@ -11,6 +11,7 @@ SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
 FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
 WPPCONNECT_BASE_URL="${WPPCONNECT_BASE_URL:-}"
+PUBLIC_BASE_URL_OVERRIDE="${PUBLIC_BASE_URL_OVERRIDE:-}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-300}"
 MAX_INSTANCES="${MAX_INSTANCES:-}"
 
@@ -57,9 +58,14 @@ else
   echo "==> Not updating CORS_ORIGINS (no CORS_ORIGINS or FIREBASE_PROJECT_ID provided)."
 fi
 
-if [ -n "${SERVICE_URL}" ]; then
-  echo "==> Updating PUBLIC_BASE_URL: ${SERVICE_URL}"
-  CMD+=(--update-env-vars="^;^PUBLIC_BASE_URL=${SERVICE_URL}")
+public_base_url_to_set="${SERVICE_URL}"
+if [ -n "${PUBLIC_BASE_URL_OVERRIDE}" ]; then
+  public_base_url_to_set="${PUBLIC_BASE_URL_OVERRIDE}"
+fi
+
+if [ -n "${public_base_url_to_set}" ]; then
+  echo "==> Updating PUBLIC_BASE_URL: ${public_base_url_to_set}"
+  CMD+=(--update-env-vars="^;^PUBLIC_BASE_URL=${public_base_url_to_set}")
 else
   echo "==> Not updating PUBLIC_BASE_URL (failed to read service URL)."
 fi

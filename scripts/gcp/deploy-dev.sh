@@ -5,7 +5,6 @@
 # Features:
 # - Idempotent step execution with JSON state tracking
 # - Step dependency chaining
-# - Redis Cloud integration verification
 # - Comprehensive validation
 # =============================================================================
 
@@ -198,25 +197,19 @@ step_terraform_apply() {
   tofu apply tfplan
 
   # Extract and store outputs
-  local backend_url backend_service artifact_repo service_account redis_enabled redis_secret
+  local backend_url backend_service artifact_repo service_account
 
   backend_url=$(tofu output -raw backend_cloud_run_url 2>/dev/null || echo "")
   backend_service=$(tofu output -raw backend_service_name 2>/dev/null || echo "")
   artifact_repo=$(tofu output -raw artifact_repo_url 2>/dev/null || echo "")
   service_account=$(tofu output -raw runtime_api_email 2>/dev/null || echo "")
-  redis_enabled=$(tofu output -raw redis_enabled 2>/dev/null || echo "false")
-  redis_secret=$(tofu output -raw redis_secret_id 2>/dev/null || echo "")
-
   store_output "backend_url" "${backend_url}"
   store_output "backend_service" "${backend_service}"
   store_output "artifact_repo" "${artifact_repo}"
   store_output "service_account" "${service_account}"
-  store_output "redis_enabled" "${redis_enabled}"
-  store_output "redis_secret" "${redis_secret}"
 
   echo "Infrastructure deployed"
   echo "Backend URL: ${backend_url}"
-  echo "Redis enabled: ${redis_enabled}"
 
   return 0
 }
@@ -300,51 +293,7 @@ step_verify_backend() {
 run_step "verify_backend" '["deploy_backend"]' "Verifying backend health" step_verify_backend
 
 # =============================================================================
-# Step 7: Verify Redis Connection (if enabled)
-# =============================================================================
-step_verify_redis() {
-  local redis_enabled
-  redis_enabled=$(get_output "redis_enabled")
-
-  if [ "${redis_enabled}" != "true" ]; then
-    echo "Redis not enabled, skipping verification"
-    return 0
-  fi
-
-  local backend_url
-  backend_url=$(get_output "backend_url")
-
-  echo "Verifying Redis connection via backend..."
-
-  # Check if WHATSAPP_TOKEN_STORE is set in Cloud Run
-  local backend_service
-  backend_service=$(get_output "backend_service")
-
-  local env_vars
-  env_vars=$(gcloud run services describe "${backend_service}" \
-    --region="${REGION}" \
-    --format="value(spec.template.spec.containers[0].env)" 2>/dev/null || echo "")
-
-  if echo "${env_vars}" | grep -q "WHATSAPP_TOKEN_STORE"; then
-    echo "WHATSAPP_TOKEN_STORE is configured"
-  else
-    echo "WARNING: WHATSAPP_TOKEN_STORE not found in env vars"
-  fi
-
-  if echo "${env_vars}" | grep -q "REDIS_URL"; then
-    echo "REDIS_URL secret reference is configured"
-  else
-    echo "WARNING: REDIS_URL not found in env vars"
-  fi
-
-  echo "Redis configuration verified"
-  return 0
-}
-
-run_step "verify_redis" '["verify_backend"]' "Verifying Redis configuration" step_verify_redis
-
-# =============================================================================
-# Step 8: Deploy Frontend
+# Step 7: Deploy Frontend
 # =============================================================================
 step_deploy_frontend() {
   cd "${REPO_ROOT}"

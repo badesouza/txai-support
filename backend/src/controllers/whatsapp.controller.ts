@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { whatsappService } from '../services/whatsapp/whatsapp.service';
 import { WhatsAppMessageRepository } from '../repositories';
 import { storage } from '../storage/storage';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('WhatsAppController');
 
 export class WhatsAppController {
   private lastStatusCheck = 0;
@@ -14,6 +17,10 @@ export class WhatsAppController {
   private requireSessionParam(req: Request, res: Response): string | null {
     const { session } = req.params;
     if (!session) {
+      logger.warn('Session-scoped endpoint called without session param', {
+        path: req.path,
+        method: req.method,
+      });
       res.status(400).json({ error: 'Session name is required' });
       return null;
     }
@@ -23,21 +30,26 @@ export class WhatsAppController {
 
   async initialize(req: Request, res: Response) {
     try {
+      logger.info('Initializing default WhatsApp session');
       await whatsappService.initialize();
       res.json({ success: true, message: 'WhatsApp initialization requested' });
     } catch (error) {
+      logger.error('Failed to initialize default WhatsApp session', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error initializing WhatsApp' });
     }
   }
 
   async disconnect(req: Request, res: Response) {
     try {
-      console.log('🔌 Controller: Iniciando desconexão do WhatsApp...');
+      logger.info('Disconnecting default WhatsApp session');
       await whatsappService.disconnect();
-      console.log('✅ Controller: WhatsApp desconectado');
       res.json({ message: 'WhatsApp disconnected successfully' });
     } catch (error) {
-      console.error('❌ Controller: Erro ao desconectar WhatsApp:', error);
+      logger.warn('Disconnect failed but API returned forced success', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       // Always return success to force state reset
       res.json({ message: 'WhatsApp disconnected successfully (forced)' });
     }
@@ -45,17 +57,21 @@ export class WhatsAppController {
 
   async reconnect(req: Request, res: Response) {
     try {
-      console.log('🔄 Controller: Recriando sessão...');
+      logger.info('Reconnecting default WhatsApp session');
       try {
         await whatsappService.disconnect();
       } catch (error) {
         // Best-effort disconnect: WPPConnect-Server can return errors when no session exists yet.
-        console.warn('⚠️ Controller: Falha ao desconectar (continuando):', error);
+        logger.warn('Best-effort disconnect failed during reconnect', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
       }
       await whatsappService.initialize();
       return res.json({ success: true, message: 'WhatsApp reconnection requested' });
     } catch (error) {
-      console.error('❌ Controller: Erro ao reconectar WhatsApp:', error);
+      logger.error('Failed to reconnect default WhatsApp session', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error reconnecting WhatsApp' });
     }
   }
@@ -74,15 +90,15 @@ export class WhatsAppController {
       if (status) {
         this.lastQrCodeGenerated = null;
       }
-      if (status || qrCode) {
-        console.log('WhatsApp Status:', { status, hasQRCode: !!qrCode });
-      }
+      logger.debug('Returning WhatsApp status', { connected: status, hasQRCode: !!qrCode });
       const response = { connected: status, qrCode: qrCode || null, phone };
       this.statusCache = response;
       this.lastStatusCheck = now;
       res.json(response);
     } catch (error) {
-      console.error('Error getting WhatsApp status:', error);
+      logger.error('Failed to fetch WhatsApp status', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error getting WhatsApp status' });
     }
   }
@@ -90,25 +106,26 @@ export class WhatsAppController {
   async getQrCode(req: Request, res: Response) {
     try {
       const now = Date.now();
-      console.log(`📱 GET /qrcode - Solicitação recebida (última: ${now - this.lastQrCodeRequest}ms atrás)`);
+      logger.debug('QR code requested', { millisSinceLastRequest: now - this.lastQrCodeRequest });
       
       // Primeiro verificar se já está conectado (antes de qualquer cache/debounce)
       const { isConnected: connected } = await whatsappService.getConnectionStatus();
       const phone = null;
       
       if (connected) {
-        console.log('✅ WhatsApp já conectado:', phone);
         this.lastQrCodeGenerated = null; // Limpar cache
         return res.json({ connected: true, qrCode: null, phone });
       }
       
       // DEBOUNCE: Se a última requisição foi há menos de 5 segundos, retornar o QR code em cache
       if (this.lastQrCodeGenerated && (now - this.lastQrCodeRequest) < this.QR_CODE_DEBOUNCE) {
-        console.log(`⏭️ DEBOUNCE: Retornando QR Code em cache (${now - this.lastQrCodeRequest}ms < ${this.QR_CODE_DEBOUNCE}ms)`);
+        logger.debug('Returning cached QR code due to debounce window', {
+          millisSinceLastRequest: now - this.lastQrCodeRequest,
+        });
         return res.json({ connected: false, qrCode: this.lastQrCodeGenerated, phone: null });
       }
       
-      console.log('📱 Não conectado - gerando NOVO QR Code...');
+      logger.info('Generating a new QR code for default session');
       this.lastQrCodeRequest = now;
       
       // Get QR code from the direct service
@@ -118,13 +135,16 @@ export class WhatsAppController {
         return res.status(202).json({ connected: false, qrCode: null, phone: null, state: 'GENERATING_QR' });
       }
       
-      // qr é um data URL completo (data:image/png;base64,...)
-      console.log('✅ QR Code gerado com sucesso:', qrCode.substring(0, 50) + '...');
+      logger.debug('QR code generated successfully', {
+        preview: qrCode.substring(0, 50),
+      });
       this.lastQrCodeGenerated = qrCode; // Salvar em cache
       return res.json({ connected: false, qrCode, phone: null, state: 'QR_READY' });
       
     } catch (error) {
-      console.error('❌ Erro ao gerar QR Code:', error);
+      logger.error('Failed to generate QR code', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error generating QR code' });
     }
   }
@@ -139,7 +159,10 @@ export class WhatsAppController {
       await whatsappService.sendMessage(phone, message);
       res.json({ success: true, message: 'Message sent successfully' });
     } catch (error) {
-      console.error('Error sending message:', error);
+      logger.error('Failed to send WhatsApp message', {
+        phone: req.body?.phone,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error sending message' });
     }
   }
@@ -150,13 +173,16 @@ export class WhatsAppController {
       const expected = String(process.env.WPPCONNECT_WEBHOOK_SECRET ?? '');
 
       if (!expected || token !== expected) {
+        logger.warn('Rejected WhatsApp webhook due to invalid token');
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
       await whatsappService.handleWebhookEvent(req.body);
       return res.json({ ok: true });
     } catch (error) {
-      console.error('❌ Error handling WhatsApp webhook:', error);
+      logger.error('Failed to handle WhatsApp webhook', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       return res.status(500).json({ error: 'Error handling webhook' });
     }
   }
@@ -194,7 +220,11 @@ export class WhatsAppController {
         res.status(400).json({ error: 'callId or phone parameter required' });
       }
     } catch (error) {
-      console.error('Error getting message history:', error);
+      logger.error('Failed to fetch WhatsApp message history', {
+        callId: req.query.callId,
+        phone: req.query.phone,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error getting message history' });
     }
   }
@@ -209,10 +239,13 @@ export class WhatsAppController {
    */
   async listSessions(req: Request, res: Response) {
     try {
+      logger.debug('Listing WhatsApp sessions');
       const result = await whatsappService.listSessions();
       res.json(result);
     } catch (error) {
-      console.error('Error listing sessions:', error);
+      logger.error('Failed to list WhatsApp sessions', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error listing sessions' });
     }
   }
@@ -231,9 +264,13 @@ export class WhatsAppController {
       }
 
       const session = await whatsappService.createSession(name);
+      logger.info('Created WhatsApp session', { session: name });
       res.json({ success: true, session });
     } catch (error) {
-      console.error('Error creating session:', error);
+      logger.error('Failed to create WhatsApp session', {
+        session: req.body?.name,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       const message = error instanceof Error ? error.message : 'Error creating session';
       res.status(500).json({ error: message });
     }
@@ -249,9 +286,13 @@ export class WhatsAppController {
       if (!session) return;
 
       await whatsappService.deleteSession(session);
+      logger.info('Deleted WhatsApp session', { session });
       res.json({ success: true, message: `Session ${session} deleted` });
     } catch (error) {
-      console.error('Error deleting session:', error);
+      logger.error('Failed to delete WhatsApp session', {
+        session: req.params.session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error deleting session' });
     }
   }
@@ -268,7 +309,10 @@ export class WhatsAppController {
       const info = await whatsappService.getSessionInfo(session);
       res.json(info);
     } catch (error) {
-      console.error('Error getting session info:', error);
+      logger.error('Failed to fetch WhatsApp session info', {
+        session: req.params.session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error getting session info' });
     }
   }
@@ -297,7 +341,10 @@ export class WhatsAppController {
       
       res.json({ connected: false, qrCode, session, state: 'QR_READY' });
     } catch (error) {
-      console.error('Error getting session QR code:', error);
+      logger.error('Failed to fetch QR code for WhatsApp session', {
+        session: req.params.session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error getting QR code' });
     }
   }
@@ -314,7 +361,10 @@ export class WhatsAppController {
       const { isConnected, hasQRCode, qrCode } = await whatsappService.getConnectionStatus(session);
       res.json({ session, connected: isConnected, hasQRCode, qrCode: qrCode || null });
     } catch (error) {
-      console.error('Error getting session status:', error);
+      logger.error('Failed to fetch WhatsApp session status', {
+        session: req.params.session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error getting session status' });
     }
   }
@@ -329,9 +379,13 @@ export class WhatsAppController {
       if (!session) return;
 
       await whatsappService.initialize(session);
+      logger.info('Initialized WhatsApp session', { session });
       res.json({ success: true, message: `Session ${session} initialization requested` });
     } catch (error) {
-      console.error('Error initializing session:', error);
+      logger.error('Failed to initialize WhatsApp session', {
+        session: req.params.session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error initializing session' });
     }
   }
@@ -346,9 +400,13 @@ export class WhatsAppController {
       if (!session) return;
 
       await whatsappService.disconnect(session);
+      logger.info('Disconnected WhatsApp session', { session });
       res.json({ success: true, message: `Session ${session} disconnected` });
     } catch (error) {
-      console.error('Error disconnecting session:', error);
+      logger.error('Failed to disconnect WhatsApp session', {
+        session: req.params.session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error disconnecting session' });
     }
   }
@@ -369,9 +427,14 @@ export class WhatsAppController {
       }
 
       await whatsappService.sendMessage(phone, message, session);
+      logger.info('Sent WhatsApp session-scoped message', { session, phone });
       res.json({ success: true, message: 'Message sent successfully', session });
     } catch (error) {
-      console.error('Error sending message via session:', error);
+      logger.error('Failed to send message via WhatsApp session', {
+        session: req.params.session,
+        phone: req.body?.phone,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       res.status(500).json({ error: 'Error sending message' });
     }
   }

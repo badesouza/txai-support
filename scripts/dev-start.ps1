@@ -163,7 +163,7 @@ Write-Host ""
 Write-Host "✅ All terminals spawned successfully!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Terminal windows opened:" -ForegroundColor Cyan
-Write-Host "   1. Docker Services (Firebase, WPPConnect, Redis, GCS)" -ForegroundColor Green
+Write-Host "   1. Docker Services (Firebase, WPPConnect, GCS)" -ForegroundColor Green
 Write-Host "   2. Backend (http://localhost:3001)" -ForegroundColor Green
 Write-Host "   3. Frontend (http://localhost:3000)" -ForegroundColor Green
 Write-Host ""

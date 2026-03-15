@@ -128,33 +128,21 @@ jobs:
         with:
           ref: ${{ needs.determine-deployment.outputs.ref }}
 
-      - uses: opentofu/setup-opentofu@v1
-        with:
-          tofu_version: ${{ env.TOFU_VERSION }}
-
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_TF_SERVICE_ACCOUNT }}
 
-      - name: Enable Tofu plugin cache
-        run: |
-          mkdir -p "$HOME/.terraform.d/plugin-cache"
-          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> $GITHUB_ENV
-
-      - name: Cache Tofu plugins
-        uses: actions/cache@v4
+      - uses: ./.github/actions/setup-tofu-cache
         with:
-          path: ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', needs.determine-deployment.outputs.environment)) }}
-          restore-keys: |
-            ${{ runner.os }}-tofu-
+          tofu_version: ${{ env.TOFU_VERSION }}
+          lockfile: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}/.terraform.lock.hcl
 
       - name: Initialize Terraform
         run: |
           tofu init \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-            -backend-config="prefix=terraform/${{ needs.determine-deployment.outputs.environment }}"
+            -backend-config="prefix=txai-support/${{ needs.determine-deployment.outputs.environment }}"
         working-directory: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
 
       - name: Apply Infrastructure
@@ -164,8 +152,7 @@ jobs:
             -lock-timeout=2h \
             -parallelism=20 \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
-            -var="region=${{ vars.GCP_REGION || 'us-central1' }}" \
-            -var="redis_enabled=false"
+            -var="region=${{ vars.GCP_REGION || 'us-central1' }}"
         working-directory: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
 
       - name: Extract Outputs
@@ -205,22 +192,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: ./.github/actions/setup-tofu-cache
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
-
-      - name: Enable Tofu plugin cache
-        run: |
-          mkdir -p "$HOME/.terraform.d/plugin-cache"
-          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> $GITHUB_ENV
-
-      - name: Cache Tofu plugins
-        uses: actions/cache@v4
-        with:
-          path: ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', needs.determine-deployment.outputs.environment)) }}
-          restore-keys: |
-            ${{ runner.os }}-tofu-
+          lockfile: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}/.terraform.lock.hcl
 
       - name: Get Terraform Outputs
         id: tf-outputs
@@ -236,7 +211,7 @@ jobs:
             cd infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
             tofu init \
               -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-              -backend-config="prefix=terraform/${{ needs.determine-deployment.outputs.environment }}"
+              -backend-config="prefix=txai-support/${{ needs.determine-deployment.outputs.environment }}"
             echo "backend_url=$(tofu output -raw backend_cloud_run_url)" >> $GITHUB_OUTPUT
             echo "backend_service_name=$(tofu output -raw backend_service_name)" >> $GITHUB_OUTPUT
             echo "artifact_repo_url=$(tofu output -raw artifact_repo_url)" >> $GITHUB_OUTPUT
@@ -336,22 +311,10 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_TF_SERVICE_ACCOUNT }}
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: ./.github/actions/setup-tofu-cache
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
-
-      - name: Enable Tofu plugin cache
-        run: |
-          mkdir -p "$HOME/.terraform.d/plugin-cache"
-          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> $GITHUB_ENV
-
-      - name: Cache Tofu plugins
-        uses: actions/cache@v4
-        with:
-          path: ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-tofu-${{ hashFiles(format('infra/terraform/environments/{0}/.terraform.lock.hcl', needs.determine-deployment.outputs.environment)) }}
-          restore-keys: |
-            ${{ runner.os }}-tofu-
+          lockfile: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}/.terraform.lock.hcl
 
       - name: Get Backend URL
         id: backend-url
@@ -366,7 +329,7 @@ jobs:
             cd infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
             tofu init \
               -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-              -backend-config="prefix=terraform/${{ needs.determine-deployment.outputs.environment }}"
+              -backend-config="prefix=txai-support/${{ needs.determine-deployment.outputs.environment }}"
             echo "url=$(tofu output -raw backend_cloud_run_url)" >> $GITHUB_OUTPUT
           fi
 
@@ -392,7 +355,7 @@ jobs:
   summary:
     name: Deployment Summary
     if: always()
-    needs: [deploy-infra, deploy-backend, deploy-frontend]
+    needs: [determine-deployment, deploy-infra, deploy-backend, deploy-frontend]
     runs-on: ubuntu-latest
     steps:
       - name: Print Summary

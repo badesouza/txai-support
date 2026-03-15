@@ -6,26 +6,24 @@ Technical support system running on Google Cloud Platform (GCP) with Firestore.
 
 ### Prerequisites
 
-Create a `.env` file with your secrets (optional, but recommended):
+Create the local development env files:
 
 ```bash
-cp env.example .env
-# Edit .env and set:
-# - JWT_SECRET
-# - ADMIN_DEFAULT_PASSWORD (for initial admin user)
-# - WPPCONNECT_SECRET_KEY / WPPCONNECT_WEBHOOK_SECRET (WhatsApp, used by docker-compose)
-# - WPPCONNECT_PLATFORM (Apple Silicon/arm64: defaults to linux/amd64)
+cp .env.local.example .env.local
+cp backend/.env.local.example backend/.env.local
+cp frontend/.env.local.example frontend/.env.local
 ```
 
-### Start Locally (Docker Compose)
+### Start Locally
+
 ```bash
-docker-compose up -d
+npm run dev
 ```
 
 **Local URLs:**
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:8081 |
+| Frontend | http://localhost:3000 |
 | Backend API | http://localhost:3001/api |
 | Firebase Emulator UI | http://localhost:4000 |
 | GCS Emulator | http://localhost:4443 |
@@ -49,9 +47,8 @@ ADMIN_PASSWORD=your-password ./scripts/test-firestore.sh
 |-----------|-------|-------|
 | **Database** | Firebase Emulator (Firestore) | Cloud Firestore |
 | **Storage** | fake-gcs-server | Cloud Storage |
-| **Redis** | Redis container | Redis Cloud |
-| **Backend** | Node.js container | Cloud Run |
-| **Frontend** | Nginx container | Firebase Hosting |
+| **Backend** | Node.js process | Cloud Run |
+| **Frontend** | React dev server | Firebase Hosting |
 | **Cost** | $0 | ~$5-10/month |
 
 ### Project Structure
@@ -100,9 +97,10 @@ cd infra/terraform/environments/dev && terraform apply
 
 ## Documentation
 
+- **[Local Development Guide](docs/LOCAL_DEVELOPMENT.md)** - Hot-reload setup with Docker-backed services
 - **[Local vs Cloud Guide](docs/architecture/LOCAL_VS_CLOUD.md)** - Environment parity details
-- **[Storage & Redis Setup](docs/STORAGE_AND_REDIS_SETUP.md)** - Storage configuration
 - **[Deployment Guide](docs/infra/deployment-guide.md)** - Full deploy instructions
+- **[Infrastructure Destruction Guide](docs/deployment/DESTRUCTION_GUIDE.md)** - Safe teardown steps
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and fixes
 
 ## Troubleshooting
@@ -117,10 +115,10 @@ Browser has an old JWT token. Clear localStorage and login again:
 
 ```bash
 # Check Firebase emulator is running
-docker-compose logs firebase-emulator
+docker compose -f docker-compose.dev.yml logs firebase-emulator
 
 # Reset everything
-docker-compose down -v && docker-compose up -d
+docker compose -f docker-compose.dev.yml down -v && docker compose -f docker-compose.dev.yml up -d
 ```
 
 ## License

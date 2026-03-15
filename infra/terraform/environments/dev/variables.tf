@@ -21,6 +21,60 @@ variable "artifact_repo_id" {
   default     = "txai-support"
 }
 
+variable "wppconnect_artifact_repo_id" {
+  type        = string
+  description = "Artifact Registry repository id for custom WPPConnect images"
+  default     = "wppconnect-images"
+}
+
+variable "domain_name" {
+  type        = string
+  description = "Root domain used for public endpoints"
+  default     = "tazco-platform.com"
+}
+
+variable "wpp_subdomain" {
+  type        = string
+  description = "Subdomain used by WPPConnect (VM + Caddy)"
+  default     = "bizybox-dev"
+}
+
+variable "backend_subdomain" {
+  type        = string
+  description = "Subdomain used by Cloud Run backend API"
+  default     = "api.bizybox-dev"
+}
+
+variable "backend_custom_domain_enabled" {
+  type        = bool
+  description = "Whether to create Cloud Run backend custom domain mapping"
+  default     = true
+}
+
+variable "manage_dns_records" {
+  type        = bool
+  description = "Whether Terraform should create Cloud DNS records"
+  default     = true
+}
+
+variable "dns_project_id" {
+  type        = string
+  description = "Project that owns the Cloud DNS managed zone"
+  default     = "tazco-platform-gcp-project-dev"
+}
+
+variable "cloud_dns_zone_name" {
+  type        = string
+  description = "Existing Cloud DNS managed zone name when manage_dns_records=true"
+  default     = "tazco-platform-com"
+}
+
+variable "backend_custom_domain_dns_target" {
+  type        = string
+  description = "DNS target for backend custom domain (CNAME for subdomains)"
+  default     = "ghs.googlehosted.com."
+}
+
 variable "gcs_uploads_bucket_name" {
   type        = string
   description = "Optional explicit bucket name for private uploads"
@@ -83,8 +137,8 @@ variable "wppconnect_container_port" {
 
 variable "wppconnect_image" {
   type        = string
-  description = "Container image for WPPConnect-Server"
-  default     = "wppconnect/server-cli:latest"
+  description = "Container image for WPPConnect-Server VM runtime (override for pinned digests)"
+  default     = ""
 }
 
 variable "wppconnect_allow_unauthenticated" {
@@ -138,45 +192,3 @@ variable "firestore_location" {
   default     = "nam5" # US multi-region - use "us-central" for single region
 }
 
-# =============================================================================
-# Redis Cloud Configuration (for WPPConnect session storage)
-# =============================================================================
-
-variable "redis_cloud_api_key" {
-  type        = string
-  description = "Redis Cloud API key"
-  sensitive   = true
-}
-
-variable "redis_cloud_secret_key" {
-  type        = string
-  description = "Redis Cloud secret key"
-  sensitive   = true
-}
-
-variable "redis_enabled" {
-  type        = bool
-  description = "Whether to provision Redis Cloud for session storage"
-  default     = true
-}
-
-variable "redis_subscription_name" {
-  type        = string
-  description = "Redis Cloud subscription name"
-  default     = "txai-support-dev"
-}
-
-variable "redis_database_name" {
-  type        = string
-  description = "Redis Cloud database name"
-  default     = "sessions"
-}
-
-variable "redis_memory_mb" {
-  type        = number
-  description = "Redis database memory limit in MB (free tier: 30MB)"
-  default     = 30
-}
-
-# Note: Redis Cloud free tier only supports AWS us-east-1
-# This is hardcoded in redis-cloud.tf for simplicity

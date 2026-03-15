@@ -99,23 +99,6 @@ backend_env_vars = {
 artifact_repo_id = "txai-support"          # Docker repository name
 
 # ======================================
-# Redis Cloud Configuration (for WhatsApp sessions)
-# ======================================
-# Redis Cloud API keys can be obtained from:
-# https://app.redislabs.com/#/account/api-keys
-#
-# RECOMMENDED: Set these via environment variables (more secure):
-#   export TF_VAR_redis_cloud_api_key="your-api-key"
-#   export TF_VAR_redis_cloud_secret_key="your-secret-key"
-#
-# OR: Uncomment and set here (less secure, but works):
-# redis_cloud_api_key    = "your-redis-cloud-api-key"
-# redis_cloud_secret_key = "your-redis-cloud-secret-key"
-#
-# To disable Redis Cloud provisioning entirely:
-# redis_enabled = false
-
-# ======================================
 # WPPConnect-Server Deployment Mode
 # ======================================
 # Choose between Cloud Run (default) or GCE VM for WPPConnect-Server

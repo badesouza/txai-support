@@ -5,6 +5,9 @@ import { JWT_SECRET, JWT_EXPIRES_IN } from '../config/jwt';
 import { UserRepository } from '../repositories';
 import { Profile } from '../types/models';
 import { normalizePhone, formatPhoneForDisplay } from '../utils/phone';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('UserController');
 
 export class UserController {
     private static serializeUser(user: { id: string; email: string; name: string; phone: string; profile: Profile }) {
@@ -21,6 +24,10 @@ export class UserController {
         try {
             return normalizePhone(phone);
         } catch (phoneError) {
+            logger.warn('Rejected invalid phone number', {
+                phone,
+                reason: phoneError instanceof Error ? phoneError.message : 'unknown',
+            });
             res.status(400).json({
                 message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
                 field: 'phone'
@@ -50,6 +57,7 @@ export class UserController {
             const existingUser = await UserRepository.findByEmail(userData.email);
 
             if (existingUser) {
+                logger.warn('Registration rejected due to existing email', { email: userData.email });
                 return res.status(400).json({ message: 'Email already registered' });
             }
 
@@ -80,11 +88,10 @@ export class UserController {
                 token
             });
         } catch (error) {
-            console.error('Erro no registro:', error);
-            if (error instanceof Error) {
-                console.error('Mensagem de erro:', error.message);
-                console.error('Stack trace:', error.stack);
-            }
+            logger.error('Unexpected error during registration', {
+                email: req.body?.email,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
             res.status(500).json({ 
                 message: 'Error creating user',
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -99,12 +106,17 @@ export class UserController {
             const user = await UserRepository.findByEmail(email);
             
             if (!user) {
+                logger.warn('Login failed because user was not found', { email });
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
 
             const isValidPassword = await bcrypt.compare(password, user.password);
             
             if (!isValidPassword) {
+                logger.warn('Login failed because password validation failed', {
+                    email,
+                    userId: user.id,
+                });
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
 
@@ -120,7 +132,10 @@ export class UserController {
                 token
             });
         } catch (error) {
-            console.error('Erro durante o login:', error);
+            logger.error('Unexpected error during login', {
+                email: req.body?.email,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
             res.status(500).json({ 
                 message: 'Error during login',
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -132,6 +147,7 @@ export class UserController {
         try {
             const userId = req.user?.id;
             if (!userId) {
+                logger.warn('Profile lookup attempted without authenticated user');
                 return res.status(401).json({ message: 'User not authenticated' });
             }
 
@@ -150,6 +166,7 @@ export class UserController {
         try {
             const userId = req.user?.id;
             if (!userId) {
+                logger.warn('Profile update attempted without authenticated user');
                 return res.status(401).json({ message: 'User not authenticated' });
             }
 
@@ -180,6 +197,7 @@ export class UserController {
         try {
             const userId = req.user?.id;
             if (!userId) {
+                logger.warn('Password update attempted without authenticated user');
                 return res.status(401).json({ message: 'User not authenticated' });
             }
 
@@ -192,6 +210,9 @@ export class UserController {
 
             const isValidPassword = await bcrypt.compare(currentPassword, user.password);
             if (!isValidPassword) {
+                logger.warn('Password update rejected due to invalid current password', {
+                    userId: String(userId),
+                });
                 return res.status(401).json({ message: 'Current password is incorrect' });
             }
 
@@ -200,6 +221,10 @@ export class UserController {
 
             res.json({ message: 'Password updated successfully' });
         } catch (error) {
+            logger.error('Unexpected error updating password', {
+                userId: req.user?.id ? String(req.user.id) : undefined,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
             res.status(500).json({ message: 'Error updating password' });
         }
     }
@@ -210,8 +235,6 @@ export class UserController {
             if (!userId) {
                 return res.status(400).json({ message: 'Invalid user ID' });
             }
-
-            console.log('Dados recebidos para atualização:', req.body);
             const { password: _password, ...updateData } = req.body;
 
             // Validate and normalize phone if present
@@ -237,9 +260,7 @@ export class UserController {
 
             // Se uma nova senha foi fornecida, gerar o hash
             if (_password) {
-                console.log('Gerando hash da nova senha...');
                 const hashedPassword = await bcrypt.hash(_password, 10);
-                console.log('Hash da senha gerado');
                 updateData.password = hashedPassword;
             }
 
@@ -251,7 +272,10 @@ export class UserController {
 
             res.json(this.serializeUser(updatedUser));
         } catch (error: any) {
-            console.error('Erro ao atualizar usuário:', error);
+            logger.error('Unexpected error updating user by id', {
+                userId: req.params.id,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
             res.status(500).json({ 
                 message: 'Error updating user',
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -304,7 +328,12 @@ export class UserController {
                 }
             });
         } catch (error) {
-            console.error('Error listing users:', error);
+            logger.error('Unexpected error listing users', {
+                page: req.query.page,
+                limit: req.query.limit,
+                search: req.query.search,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
             res.status(500).json({ 
                 message: 'Error listing users',
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -314,11 +343,12 @@ export class UserController {
 
     static async createUser(req: Request, res: Response) {
         try {
-            console.log('Body recebido:', req.body);
-            console.log('Content-Type:', req.headers['content-type']);
-
             const userData = req.body;
-            console.log('Dados do usuário:', userData);
+            logger.debug('Admin user creation requested', {
+                email: userData?.email,
+                profile: userData?.profile,
+                contentType: req.headers['content-type'],
+            });
 
             if (!userData.email || !userData.password || !userData.name || !userData.phone) {
                 return res.status(400).json({ 
@@ -328,33 +358,19 @@ export class UserController {
             }
 
             const existingUser = await UserRepository.findByEmail(userData.email);
-            console.log('Usuário existente:', existingUser);
 
             if (existingUser) {
+                logger.warn('Admin user creation rejected due to existing email', { email: userData.email });
                 return res.status(400).json({ message: 'Email already registered' });
             }
 
-            console.log('Criando hash da senha...');
             const hashedPassword = await bcrypt.hash(userData.password, 10);
-            console.log('Hash da senha criado');
 
             // Validate and normalize phone (E.164 format for WhatsApp)
-            let normalizedPhone: string;
-            try {
-                normalizedPhone = normalizePhone(userData.phone);
-            } catch (phoneError) {
-                return res.status(400).json({ 
-                    message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
-                    field: 'phone'
-                });
+            const normalizedPhone = this.normalizePhoneOrReject(userData.phone, res);
+            if (!normalizedPhone) {
+                return;
             }
-
-            console.log('Criando usuário com dados:', {
-                ...userData,
-                password: '[REDACTED]',
-                phone: normalizedPhone,
-                profile: userData.profile
-            });
 
             const user = await UserRepository.create({
                 name: userData.name,
@@ -363,17 +379,20 @@ export class UserController {
                 phone: normalizedPhone,
                 profile: userData.profile as Profile
             });
-            console.log('Usuário criado:', user);
+            logger.info('Admin user created successfully', {
+                userId: user.id,
+                email: user.email,
+                profile: user.profile,
+            });
 
             res.status(201).json({
                 ...this.serializeUser(user)
             });
         } catch (error) {
-            console.error('Erro ao criar usuário:', error);
-            if (error instanceof Error) {
-                console.error('Mensagem de erro:', error.message);
-                console.error('Stack trace:', error.stack);
-            }
+            logger.error('Unexpected error creating user', {
+                email: req.body?.email,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
             res.status(500).json({ 
                 message: 'Error creating user',
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -396,6 +415,10 @@ export class UserController {
 
             res.json(this.serializeUser(user));
         } catch (error) {
+            logger.error('Unexpected error fetching user by id', {
+                userId: req.params.id,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
             res.status(500).json({ message: 'Error fetching user' });
         }
     }
@@ -415,6 +438,10 @@ export class UserController {
 
             res.json({ message: 'User deleted successfully' });
         } catch (error: any) {
+            logger.error('Unexpected error deleting user', {
+                userId: req.params.id,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
             res.status(500).json({ message: 'Error deleting user' });
         }
     }

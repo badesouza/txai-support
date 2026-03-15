@@ -13,9 +13,8 @@ infra/terraform/
 │
 └── environments/
     └── dev/
-        ├── main.tf         # Cloud Run, GCS, Firestore
+        ├── main.tf         # Cloud Run, GCS, Firestore, DNS
         ├── wppconnect-vm.tf # GCE VM for WPPConnect
-        ├── redis-cloud.tf  # Redis Cloud free tier
         ├── variables.tf    # Input variables
         ├── outputs.tf      # Exported values
         └── scripts/
@@ -43,9 +42,6 @@ infra/terraform/
 │                                                                 │
 │  Firestore                                                      │
 │  └─ (default) database    (native mode)                        │
-│                                                                 │
-│  Secret Manager                                                 │
-│  └─ redis-url-dev         (Redis Cloud connection)             │
 │                                                                 │
 │  Service Accounts                                               │
 │  ├─ ci-deployer           (Cloud Build, Artifact Registry)     │
@@ -100,8 +96,6 @@ Or use the deploy script:
 | `environment_name` | Environment (dev/prod) | Yes |
 | `wppconnect_secret_key` | WPPConnect API secret | Yes |
 | `wppconnect_webhook_secret` | Webhook auth token | Yes |
-| `redis_cloud_api_key` | Redis Cloud API key | Yes |
-| `redis_cloud_secret_key` | Redis Cloud secret | Yes |
 
 ## Outputs
 
@@ -137,10 +131,21 @@ resource "null_resource" "sync_wppconnect_url_to_backend" {
 
 ```
 infra/
-└── .env.local              # Terraform secrets (not committed)
-    ├── TF_VAR_redis_cloud_api_key
-    └── TF_VAR_redis_cloud_secret_key
+└── .env.local              # Terraform deployment settings (not committed)
 ```
+
+## Remote State
+
+The `dev` environment uses a GCS backend declared in `infra/terraform/environments/dev/versions.tf`.
+Local scripts and GitHub Actions must both initialize OpenTofu with the same backend prefix:
+
+```bash
+tofu init \
+  -backend-config="bucket=$TF_STATE_BUCKET" \
+  -backend-config="prefix=txai-support/dev"
+```
+
+If CI uses a different prefix, it will read a different state snapshot and may try to recreate existing infrastructure.
 
 ## Commands
 

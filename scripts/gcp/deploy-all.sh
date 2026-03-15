@@ -7,38 +7,12 @@
 
 set -euo pipefail
 
-# Color output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-log_info() { echo -e "${BLUE}==>${NC} $*"; }
-log_success() { echo -e "${GREEN}==>${NC} $*"; }
-log_warn() { echo -e "${YELLOW}==>${NC} $*"; }
-log_error() { echo -e "${RED}==>${NC} $*"; }
-
 # Get script and repo root directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
+REPO_ROOT="$(resolve_repo_root "${SCRIPT_DIR}")"
 
-# Load environment from root and infra .env.local files FIRST
-if [ -f "${REPO_ROOT}/.env.local" ]; then
-  log_info "Loading root environment from .env.local..."
-  set -a
-  # shellcheck source=../../.env.local
-  source "${REPO_ROOT}/.env.local"
-  set +a
-fi
-
-if [ -f "${REPO_ROOT}/infra/.env.local" ]; then
-  log_info "Loading infra environment from infra/.env.local..."
-  set -a
-  # shellcheck source=../../infra/.env.local
-  source "${REPO_ROOT}/infra/.env.local"
-  set +a
-fi
+load_repo_env_files "${REPO_ROOT}"
 
 # Configuration (env files loaded above, fallback to defaults)
 PROJECT_ID="${PROJECT_ID:-}"
@@ -46,6 +20,17 @@ REGION="${REGION:-us-central1}"
 ENVIRONMENT_NAME="${ENVIRONMENT_NAME:-dev}"
 TF_STATE_BUCKET="${TF_STATE_BUCKET:-}"
 TF_STATE_PREFIX="${TF_STATE_PREFIX:-txai-support/${ENVIRONMENT_NAME}}"
+DEPLOY_WPPCONNECT="${DEPLOY_WPPCONNECT:-false}"
+WPPCONNECT_VM_NAME="${WPPCONNECT_VM_NAME:-wppconnect-server}"
+WPPCONNECT_VM_ZONE="${WPPCONNECT_VM_ZONE:-us-central1-a}"
+WPPCONNECT_IMAGE="${WPPCONNECT_IMAGE:-}"
+
+is_true() {
+  case "${1,,}" in
+    true|1|yes|y|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # Validate required variables
 if [ -z "${PROJECT_ID}" ]; then
@@ -69,41 +54,35 @@ echo "  Project ID:     ${PROJECT_ID}"
 echo "  Region:         ${REGION}"
 echo "  Environment:    ${ENVIRONMENT_NAME}"
 echo "  State Bucket:   ${TF_STATE_BUCKET}"
+echo "  Deploy WPP:     ${DEPLOY_WPPCONNECT}"
 echo ""
 
 # Check prerequisites
 log_info "Checking prerequisites..."
 
-# Check gcloud
-if ! command -v gcloud &> /dev/null; then
-  log_error "gcloud CLI not found. Install: https://cloud.google.com/sdk/docs/install"
-  exit 1
-fi
+require_command "gcloud" "Install: https://cloud.google.com/sdk/docs/install"
+require_command "tofu" "Install: brew install opentofu"
+require_command "jq" "Install: brew install jq"
 
-# Check tofu
-if ! command -v tofu &> /dev/null; then
-  log_error "OpenTofu not found. Install: brew install opentofu"
-  exit 1
-fi
-
-# Check jq
-if ! command -v jq &> /dev/null; then
-  log_error "jq not found. Install: brew install jq"
-  exit 1
-fi
-
-# Verify gcloud authentication
-if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" &> /dev/null; then
-  log_error "Not authenticated. Run: gcloud auth login"
-  exit 1
-fi
-
-ACTIVE_ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)" | head -1)
+ACTIVE_ACCOUNT=$(require_gcloud_auth)
 log_success "Authenticated as: ${ACTIVE_ACCOUNT}"
 
-# Set active project
-log_info "Setting active project..."
-gcloud config set project "${PROJECT_ID}" &> /dev/null
+set_gcloud_project "${PROJECT_ID}"
+
+if [ -z "${WPPCONNECT_IMAGE}" ]; then
+  CURRENT_WPPCONNECT_IMAGE="$(
+    gcloud compute instances describe "${WPPCONNECT_VM_NAME}" \
+      --zone "${WPPCONNECT_VM_ZONE}" \
+      --project "${PROJECT_ID}" \
+      --format=json 2>/dev/null \
+      | jq -r '.metadata.items[]? | select(.key == "wppconnect-image") | .value' 2>/dev/null || true
+  )"
+
+  if [ -n "${CURRENT_WPPCONNECT_IMAGE}" ]; then
+    WPPCONNECT_IMAGE="${CURRENT_WPPCONNECT_IMAGE}"
+    log_info "Preserving pinned WPPConnect image: ${WPPCONNECT_IMAGE}"
+  fi
+fi
 
 # Verify state bucket exists
 log_info "Verifying state bucket exists..."
@@ -126,7 +105,7 @@ node_modules
 npm-debug.log
 .env
 .env.*
-!.env.example
+!.env.local.example
 dist
 coverage
 *.log
@@ -160,13 +139,39 @@ tofu init \
   -backend-config="prefix=${TF_STATE_PREFIX}" \
   -reconfigure
 
+# ---------------------------------------------------------------------------
+# Firestore default database is a singleton per project. If it already exists
+# (common when re-running deploys), Terraform must import it or create will fail
+# with 409 "Database already exists".
+# ---------------------------------------------------------------------------
+log_info "Ensuring Firestore database is managed (import if it already exists)..."
+if ! tofu state list 2>/dev/null | grep -q "^google_firestore_database\.main$"; then
+  if gcloud firestore databases describe --database="(default)" --project="${PROJECT_ID}" --format="value(name)" >/dev/null 2>&1; then
+    log_warn "Firestore '(default)' database already exists in GCP but not in state. Importing..."
+    tofu import "google_firestore_database.main" "projects/${PROJECT_ID}/databases/(default)" || true
+    log_success "Firestore database import step completed"
+  else
+    log_info "Firestore '(default)' database not found (or not accessible yet); Terraform will attempt to create it."
+  fi
+else
+  log_success "Firestore database already present in Terraform state"
+fi
+
 # Terraform Plan
 log_info "Planning infrastructure..."
-tofu plan \
-  -var="project_id=${PROJECT_ID}" \
-  -var="region=${REGION}" \
-  -var="environment_name=${ENVIRONMENT_NAME}" \
+PLAN_CMD=(
+  tofu plan
+  -var="project_id=${PROJECT_ID}"
+  -var="region=${REGION}"
+  -var="environment_name=${ENVIRONMENT_NAME}"
   -out=tfplan
+)
+
+if [ -n "${WPPCONNECT_IMAGE}" ]; then
+  PLAN_CMD+=(-var="wppconnect_image=${WPPCONNECT_IMAGE}")
+fi
+
+"${PLAN_CMD[@]}"
 
 # Terraform Apply
 log_info "Applying infrastructure..."
@@ -175,19 +180,54 @@ tofu apply -lock-timeout=30m tfplan
 # Extract outputs
 log_info "Extracting Terraform outputs..."
 BACKEND_URL=$(tofu output -raw backend_cloud_run_url)
+BACKEND_PUBLIC_URL=$(tofu output -raw backend_public_url)
 BACKEND_SERVICE_NAME=$(tofu output -raw backend_service_name)
 SERVICE_ACCOUNT=$(tofu output -raw runtime_api_email)
 ARTIFACT_REPO_URL=$(tofu output -raw artifact_repo_url)
+WPPCONNECT_ARTIFACT_REPO_URL=$(tofu output -raw wppconnect_artifact_repo_url)
 WPPCONNECT_URL=$(tofu output -raw wppconnect_base_url)
+WPPCONNECT_FQDN=$(tofu output -raw wppconnect_fqdn)
+BACKEND_FQDN=$(tofu output -raw backend_fqdn)
+WPPCONNECT_VM_NAME=$(tofu output -raw wppconnect_vm_name)
+WPPCONNECT_VM_ZONE=$(tofu output -raw wppconnect_vm_zone)
+BACKEND_DOMAIN_MAPPING_RECORDS_JSON=$(tofu output -json backend_domain_mapping_records 2>/dev/null || echo "[]")
+DNS_RECORDS_MANAGED=$(tofu output -raw dns_records_managed_by_terraform 2>/dev/null || echo "false")
 
 # Extract artifact registry details
 AR_REPO=$(echo "${ARTIFACT_REPO_URL}" | awk -F'/' '{print $3}')
+WPPCONNECT_AR_REPO=$(echo "${WPPCONNECT_ARTIFACT_REPO_URL}" | awk -F'/' '{print $3}')
 
 log_success "Infrastructure deployed successfully"
 echo "  Backend Service:     ${BACKEND_SERVICE_NAME}"
 echo "  Backend URL:         ${BACKEND_URL}"
+echo "  Backend Public URL:  ${BACKEND_PUBLIC_URL}"
 echo "  WPPConnect URL:      ${WPPCONNECT_URL}"
 echo ""
+
+if [ "${DNS_RECORDS_MANAGED}" != "true" ]; then
+  log_warn "DNS records are not managed by Terraform in this environment."
+  log_warn "Ensure these records exist before validation:"
+  echo "  - ${WPPCONNECT_FQDN} -> ${WPPCONNECT_VM_NAME} public IP"
+  echo "  - ${BACKEND_FQDN} -> Cloud Run custom domain target"
+  if [ "${BACKEND_DOMAIN_MAPPING_RECORDS_JSON}" != "[]" ]; then
+    echo "  Cloud Run suggested records: ${BACKEND_DOMAIN_MAPPING_RECORDS_JSON}"
+  fi
+fi
+
+# Deploy custom WPPConnect image only when explicitly requested.
+if is_true "${DEPLOY_WPPCONNECT}"; then
+  log_info "Building and deploying custom WPPConnect image..."
+  cd "${REPO_ROOT}"
+  export PROJECT_ID="${PROJECT_ID}"
+  export REGION="${REGION}"
+  export WPPCONNECT_AR_REPO="${WPPCONNECT_AR_REPO}"
+  export WPPCONNECT_VM_NAME="${WPPCONNECT_VM_NAME}"
+  export WPPCONNECT_VM_ZONE="${WPPCONNECT_VM_ZONE}"
+  export WPPCONNECT_FQDN="${WPPCONNECT_FQDN}"
+  "${SCRIPT_DIR}/deploy-wppconnect.sh"
+else
+  log_info "Skipping WPPConnect build/deploy. Set DEPLOY_WPPCONNECT=true to rebuild it explicitly."
+fi
 
 # Derive Firebase/CORS inputs for backend with clear precedence:
 # - FIREBASE_PROJECT_ID: caller env > .firebaserc > PROJECT_ID
@@ -226,6 +266,7 @@ export PROJECT_ID="${PROJECT_ID}"
 export CORS_ORIGINS="${CORS_ORIGINS}"
 export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID}"
 export WPPCONNECT_BASE_URL="${WPPCONNECT_URL}"
+export PUBLIC_BASE_URL_OVERRIDE="${BACKEND_PUBLIC_URL}"
 
 "${SCRIPT_DIR}/deploy-backend.sh"
 
@@ -234,7 +275,7 @@ log_info "Waiting for backend to be ready..."
 MAX_ATTEMPTS=30
 ATTEMPT=0
 while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-  if curl -sf "${BACKEND_URL}/api/health" > /dev/null 2>&1; then
+  if curl -sf "${BACKEND_PUBLIC_URL}/api/health" > /dev/null 2>&1 || curl -sf "${BACKEND_URL}/api/health" > /dev/null 2>&1; then
     log_success "Backend is healthy"
     break
   fi
@@ -244,13 +285,14 @@ while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
     sleep 10
   else
     log_warn "Backend health check timed out, but continuing deployment"
-    log_warn "Check manually: curl ${BACKEND_URL}/api/health"
+    log_warn "Check manually: curl ${BACKEND_PUBLIC_URL}/api/health"
+    log_warn "Fallback check: curl ${BACKEND_URL}/api/health"
   fi
 done
 
 # Deploy Frontend to Firebase Hosting
 log_info "Deploying frontend to Firebase Hosting..."
-export API_URL="${BACKEND_URL}/api"
+export API_URL="${BACKEND_PUBLIC_URL}/api"
 
 "${SCRIPT_DIR}/deploy-frontend-firebase.sh"
 
@@ -276,8 +318,11 @@ else
   echo "Frontend:   (missing .firebaserc, run setup-firebase.sh)"
 fi
 echo "Backend:    ${BACKEND_URL}"
+echo "Backend API Domain: ${BACKEND_PUBLIC_URL}"
 echo "Health:     ${BACKEND_URL}/api/health"
 echo "WPPConnect: ${WPPCONNECT_URL}"
+echo "WPPConnect Hostname: ${WPPCONNECT_FQDN}"
+echo "Backend Hostname: ${BACKEND_FQDN}"
 echo ""
 echo "========================================"
 echo "Next Steps"
@@ -289,7 +334,8 @@ echo "     --region ${REGION} \\"
 echo "     --update-env-vars JWT_SECRET=your-secret-here"
 echo ""
 echo "2. Test the application:"
-echo "   curl ${BACKEND_URL}/api/health"
+echo "   curl ${BACKEND_PUBLIC_URL}/api/health"
+echo "   curl https://${WPPCONNECT_FQDN}/api-docs"
 echo ""
 echo "3. Monitor logs:"
 echo "   gcloud run services logs read ${BACKEND_SERVICE_NAME} --region ${REGION}"

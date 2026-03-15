@@ -11,7 +11,6 @@ Same code, different infrastructure through environment auto-detection.
 | **WhatsApp** | WPPConnect Docker | **GCE VM** ⚡ | `WPPCONNECT_BASE_URL` |
 | **Database** | Firebase Emulator | Cloud Firestore | `FIRESTORE_EMULATOR_HOST` |
 | **Storage** | fake-gcs-server | Cloud Storage | `STORAGE_EMULATOR_HOST` |
-| **Redis** | Redis container | Redis Cloud | `REDIS_URL` scheme |
 | **Cost** | $0 | ~$10-15/month | — |
 
 > ⚡ **Key difference**: WPPConnect runs in Docker locally but on a **dedicated VM** in cloud for Chrome/Puppeteer stability.
@@ -36,13 +35,13 @@ Same code, different infrastructure through environment auto-detection.
 │                         │                      │                    │
 │                    ┌────┴────┐                 │                    │
 │                    ▼         ▼                 ▼                    │
-│              ┌──────────┐ ┌──────┐      ┌───────────┐              │
-│              │ Firebase │ │Redis │      │  Chrome   │              │
-│              │ Emulator │ │:6379 │      │ (headless)│              │
-│              │  :4000   │ └──────┘      └───────────┘              │
-│              └──────────┘                                           │
-│                    │                                                │
-│                    ▼                                                │
+│              ┌──────────┐                ┌───────────┐              │
+│              │ Firebase │                │  Chrome   │              │
+│              │ Emulator │                │ (headless)│              │
+│              │  :4000   │                └───────────┘              │
+│              └────┬─────┘                                           │
+│                   │                                                 │
+│                   ▼                                                 │
 │              ┌──────────┐                                           │
 │              │ fake-gcs │                                           │
 │              │  :4443   │                                           │
@@ -69,14 +68,14 @@ Same code, different infrastructure through environment auto-detection.
 │  └──────────────┘    └──────┬───────┘    └──────────┬───────────┘  │
 │                             │                       │               │
 │                        ┌────┴────┐                  │               │
-│                        ▼         ▼                  ▼               │
-│                  ┌──────────┐ ┌────────┐    ┌───────────────┐      │
-│                  │ Cloud    │ │ Redis  │    │    Chrome     │      │
-│                  │Firestore │ │ Cloud  │    │  (persistent) │      │
-│                  │          │ │ (TLS)  │    │   sessions    │      │
-│                  └──────────┘ └────────┘    └───────────────┘      │
-│                        │                                            │
-│                        ▼                                            │
+│                        ▼                            ▼               │
+│                  ┌──────────┐                ┌───────────────┐      │
+│                  │ Cloud    │                │    Chrome     │      │
+│                  │Firestore │                │  (persistent) │      │
+│                  │          │                │   sessions    │      │
+│                  └────┬─────┘                └───────────────┘      │
+│                       │                                             │
+│                       ▼                                             │
 │                  ┌──────────┐                                       │
 │                  │  Cloud   │                                       │
 │                  │ Storage  │                                       │
@@ -104,14 +103,12 @@ Same code, different infrastructure through environment auto-detection.
 ```yaml
 FIRESTORE_EMULATOR_HOST: firebase-emulator:8080
 STORAGE_EMULATOR_HOST: http://fake-gcs:4443
-REDIS_URL: redis://redis:6379
 WPPCONNECT_BASE_URL: http://wppconnect-server:21465
 ```
 
 ### Cloud (Terraform-managed)
 ```bash
 # No emulator vars = real services
-REDIS_URL: rediss://:PASSWORD@host:port  # TLS
 WPPCONNECT_BASE_URL: http://<VM-IP>:21465  # Auto-synced by Terraform
 ```
 
@@ -123,7 +120,6 @@ WPPCONNECT_BASE_URL: http://<VM-IP>:21465  # Auto-synced by Terraform
 | GCE VM (WPPConnect) | ~$5-7 |
 | Cloud Firestore | ~$0-2 |
 | Cloud Storage | ~$0.02 |
-| Redis Cloud | $0 (free tier) |
 | Firebase Hosting | $0 (free tier) |
 | **Total** | **~$10-15** |
 

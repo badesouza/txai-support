@@ -157,7 +157,7 @@ gcloud run logs read txai-backend --limit=50
 ### Common Causes
 1. Missing environment variables
 2. Wrong WPPCONNECT_BASE_URL
-3. Redis connection issues
+3. Storage or emulator configuration drift
 
 ### Frontend Blank Screen
 1. Check `firebase.json` has rewrites: `{ "source": "**", "destination": "/index.html" }`
@@ -176,6 +176,6 @@ gcloud compute ssh wppconnect-server --zone=us-central1-a \
   --command="sudo docker logs -f wppconnect-server"
 
 # Local (Docker)
-docker-compose logs -f backend
-docker-compose logs -f wppconnect-server
+docker compose -f docker-compose.dev.yml logs -f backend
+docker compose -f docker-compose.dev.yml logs -f wppconnect-server
 ```

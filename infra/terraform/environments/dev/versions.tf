@@ -8,13 +8,13 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 6.0"
     }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 6.0"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
-    }
-    rediscloud = {
-      source  = "RedisLabs/rediscloud"
-      version = "~> 2.0"
     }
     null = {
       source  = "hashicorp/null"
@@ -28,7 +28,13 @@ provider "google" {
   region  = var.region
 }
 
-provider "rediscloud" {
-  api_key    = var.redis_cloud_api_key
-  secret_key = var.redis_cloud_secret_key
+provider "google" {
+  alias   = "dns"
+  project = var.dns_project_id != "" ? var.dns_project_id : var.project_id
+  region  = var.region
+}
+
+provider "google-beta" {
+  project = var.project_id
+  region  = var.region
 }

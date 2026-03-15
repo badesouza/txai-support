@@ -2,8 +2,10 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Button, Typography, message, Spin } from 'antd';
 import { DisconnectOutlined, SyncOutlined } from '@ant-design/icons';
 import api from '../config/axios';
+import { createLogger } from '../utils/logger';
 
 const { Text } = Typography;
+const logger = createLogger('WhatsAppConnection');
 
 interface WhatsAppConnectionProps {
   /** Optional session name. If not provided, uses the default session. */
@@ -43,12 +45,14 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
   // Request QR Code (usa inFlightQrRef)
   const requestQrCode = useCallback(async () => {
     if (inFlightQrRef.current) {
+      logger.debug('Skipped QR request because another one is already in flight', { session });
       return null;
     }
     inFlightQrRef.current = true;
     try {
       const response = await api.get(getApiPath('qrcode'), { validateStatus: () => true });
       if (response.status === 202) {
+        logger.debug('QR code is still being generated', { session });
         if (mountedRef.current) setQrCode(null);
         return null;
       }
@@ -65,14 +69,20 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
         return null;
       }
       if (String(qrCodeData).startsWith('data:image')) {
+        logger.info('Received QR code payload for session', { session });
         setQrCode(String(qrCodeData));
         return String(qrCodeData);
       }
       // Back-compat: treat long strings as base64 payloads
       const formattedQr = `data:image/png;base64,${String(qrCodeData)}`;
+      logger.info('Received base64 QR code payload for session', { session });
       setQrCode(formattedQr);
       return formattedQr;
     } catch (error) {
+      logger.error('Failed to request QR code', {
+        session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       if (mountedRef.current) message.error('Erro ao gerar QR Code');
       setQrCode(null);
       return null;
@@ -84,6 +94,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
   // Check status - retorna um objeto com resultado para uso pelos chamadores
   const checkStatus = useCallback(async (): Promise<{ connected: boolean; phone: string | null } | null> => {
     if (inFlightStatusRef.current) {
+      logger.debug('Skipped status request because another one is already in flight', { session });
       return null;
     }
     inFlightStatusRef.current = true;
@@ -94,12 +105,14 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
       if (!mountedRef.current) return { connected, phone };
 
       if (connected) {
+        logger.info('WhatsApp session is connected', { session, phone });
         setIsConnected(true);
         setConnectedPhone(phone);
         setQrCode(null);
         stopPolling();
         message.success('WhatsApp conectado com sucesso!');
       } else {
+        logger.debug('WhatsApp session is disconnected, requesting QR code', { session });
         setIsConnected(false);
         setConnectedPhone(null);
         await requestQrCode();
@@ -107,6 +120,10 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
 
       return { connected, phone };
     } catch (error) {
+      logger.error('Failed to check WhatsApp status', {
+        session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       if (mountedRef.current) message.error('Erro ao verificar status do WhatsApp');
       return null;
     } finally {
@@ -118,6 +135,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
   // Start polling with 10 second interval
   const startPolling = useCallback(() => {
     stopPolling(); // Clear any existing interval
+    logger.debug('Starting WhatsApp polling loop', { session, intervalMs: 10000 });
 
     pollingRef.current = setInterval(() => {
       // Não aguardamos aqui; checkStatus já protege concorrência
@@ -128,6 +146,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
   const disconnectWhatsApp = async () => {
     setLoading(true);
     try {
+      logger.info('Disconnect requested from UI', { session });
       await api.post(getApiPath('disconnect'));
 
       // Forçar atualização de estado a partir do resultado real
@@ -145,6 +164,10 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
         message.success('WhatsApp desconectado com sucesso');
       }
     } catch (error) {
+      logger.error('Failed to disconnect WhatsApp from UI', {
+        session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       if (mountedRef.current) message.error('Erro ao desconectar o WhatsApp');
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -155,12 +178,17 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
     setLoading(true);
     if (mountedRef.current) setCheckingStatus(true);
     try {
+      logger.info('Reconnect requested from UI', { session });
       const status = await checkStatus();
       // Decida com base no retorno (evita depender de isConnected stale)
       if (!status?.connected) {
         startPolling();
       }
     } catch (error) {
+      logger.error('Failed to reconnect WhatsApp from UI', {
+        session,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       if (mountedRef.current) message.error('Erro ao reconectar o WhatsApp');
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -170,6 +198,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
   // Initial mount: verificar status e iniciar polling automático
   useEffect(() => {
     mountedRef.current = true;
+    logger.debug('Mounting WhatsAppConnection', { session });
 
     // Reset state when session changes
     setQrCode(null);
@@ -186,6 +215,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
 
     return () => {
       mountedRef.current = false;
+      logger.debug('Unmounting WhatsAppConnection', { session });
       stopPolling();
     };
   }, [session, checkStatus, startPolling, stopPolling]);

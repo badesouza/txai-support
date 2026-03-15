@@ -4,7 +4,7 @@
 # VM-based deployment for WPPConnect-Server with:
 # - Persistent disk for userDataDir (WhatsApp session data)
 # - 1 vCPU, 2GB RAM (e2-small)
-# - Docker-based deployment using wppconnect/server-cli
+# - Docker-based deployment using custom image + Caddy
 # =============================================================================
 
 # VM Configuration Variables
@@ -30,6 +30,12 @@ variable "wppconnect_vm_disk_size_gb" {
   type        = number
   description = "Size of the persistent data disk in GB"
   default     = 20
+}
+
+variable "wppconnect_vm_admin_cidrs" {
+  type        = list(string)
+  description = "CIDR ranges allowed to SSH into WPPConnect VM"
+  default     = ["0.0.0.0/0"]
 }
 
 # =============================================================================
@@ -60,18 +66,34 @@ resource "google_compute_disk" "wppconnect_data" {
 }
 
 # =============================================================================
-# Firewall Rule for WPPConnect API (port 21465)
+# Firewall Rule for public HTTPS/HTTP through Caddy (ports 80/443)
 # =============================================================================
-resource "google_compute_firewall" "wppconnect_api" {
-  name    = "${var.wppconnect_vm_name}-allow-api"
+resource "google_compute_firewall" "wppconnect_web" {
+  name    = "${var.wppconnect_vm_name}-allow-web"
   network = "default"
 
   allow {
     protocol = "tcp"
-    ports    = ["21465", "22"]
+    ports    = ["80", "443"]
   }
 
   source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["wppconnect-server"]
+}
+
+# =============================================================================
+# Firewall Rule for SSH administration
+# =============================================================================
+resource "google_compute_firewall" "wppconnect_ssh" {
+  name    = "${var.wppconnect_vm_name}-allow-ssh"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = var.wppconnect_vm_admin_cidrs
   target_tags   = ["wppconnect-server"]
 }
 
@@ -114,9 +136,11 @@ resource "google_compute_instance" "wppconnect" {
 
   metadata = {
     # Pass configuration to the startup script
+    wppconnect-image         = local.effective_wppconnect_image
+    wppconnect-fqdn          = local.wppconnect_fqdn
     wppconnect-secret-key    = var.wppconnect_secret_key
     wppconnect-session       = var.wppconnect_session
-    wppconnect-webhook-url   = "${google_cloud_run_v2_service.backend.uri}/api/whatsapp/webhook"
+    wppconnect-webhook-url   = "${local.backend_public_base_url}/api/whatsapp/webhook"
     wppconnect-webhook-token = var.wppconnect_webhook_secret
   }
 
@@ -133,7 +157,8 @@ resource "google_compute_instance" "wppconnect" {
   depends_on = [
     google_project_service.apis,
     google_compute_disk.wppconnect_data,
-    google_compute_firewall.wppconnect_api,
+    google_compute_firewall.wppconnect_web,
+    google_compute_firewall.wppconnect_ssh,
   ]
 }
 
@@ -146,11 +171,21 @@ output "wppconnect_vm_ip" {
 }
 
 output "wppconnect_vm_url" {
-  value       = "http://${google_compute_address.wppconnect_vm.address}:21465"
-  description = "WPPConnect API URL"
+  value       = local.wppconnect_base_url
+  description = "Public WPPConnect API URL"
 }
 
 output "wppconnect_vm_ssh" {
   value       = "gcloud compute ssh ${var.wppconnect_vm_name} --zone=${var.wppconnect_vm_zone}"
   description = "SSH command to connect to the VM"
+}
+
+output "wppconnect_vm_name" {
+  value       = var.wppconnect_vm_name
+  description = "WPPConnect VM name"
+}
+
+output "wppconnect_vm_zone" {
+  value       = var.wppconnect_vm_zone
+  description = "WPPConnect VM zone"
 }

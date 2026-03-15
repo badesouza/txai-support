@@ -1,0 +1,31 @@
+name: Setup OpenTofu Cache
+description: Install OpenTofu and enable the shared plugin cache.
+
+inputs:
+  tofu_version:
+    description: OpenTofu version to install
+    required: true
+  lockfile:
+    description: Path to the .terraform.lock.hcl file used for cache keying
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: opentofu/setup-opentofu@v1
+      with:
+        tofu_version: ${{ inputs.tofu_version }}
+
+    - name: Enable Tofu plugin cache
+      shell: bash
+      run: |
+        mkdir -p "$HOME/.terraform.d/plugin-cache"
+        echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
+
+    - name: Cache Tofu plugins
+      uses: actions/cache@v4
+      with:
+        path: ~/.terraform.d/plugin-cache
+        key: ${{ runner.os }}-tofu-${{ hashFiles(inputs.lockfile) }}
+        restore-keys: |
+          ${{ runner.os }}-tofu-

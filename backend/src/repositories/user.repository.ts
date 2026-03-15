@@ -1,10 +1,12 @@
 import { getFirestore, Collections } from '../lib/firebase';
 import { User, UserCreateInput, UserUpdateInput, PaginationResult, PaginationOptions } from '../types/models';
 import { v4 as uuidv4 } from 'uuid';
+import { createLogger } from '../utils/logger';
 
 const db = getFirestore();
 const collection = db.collection(Collections.USERS);
 type PhoneSearchFormat = { label: string; value: string };
+const logger = createLogger('UserRepository');
 
 export class UserRepository {
   /**
@@ -65,17 +67,18 @@ export class UserRepository {
    */
   static async findByPhone(phone: string): Promise<User | null> {
     const normalizedPhone = phone.replace(/\D/g, '');
-    
-    console.log(`📞 [UserRepository.findByPhone] Searching for phone:`);
-    console.log(`   - Input phone: "${phone}"`);
-    console.log(`   - Normalized (digits only): "${normalizedPhone}"`);
 
     const uniqueFormats = this.buildPhoneFormatsToTry(phone, normalizedPhone);
-
-    console.log(`   - Formats to try (${uniqueFormats.length}): ${uniqueFormats.map(f => `${f.label}="${f.value}"`).join(', ')}`);
+    logger.debug('Searching user by phone', {
+      inputPhone: this.maskPhone(phone),
+      normalizedPhone: this.maskPhone(normalizedPhone),
+      formatsToTry: uniqueFormats.map((format) => ({
+        label: format.label,
+        value: this.maskPhone(format.value),
+      })),
+    });
     
     for (const format of uniqueFormats) {
-      console.log(`   🔍 Trying ${format.label}: "${format.value}"...`);
       const snapshot = await collection
         .where('phone', '==', format.value)
         .limit(1)
@@ -83,18 +86,19 @@ export class UserRepository {
       
       if (!snapshot.empty) {
         const user = this.docToUser(snapshot.docs[0]);
-        console.log(`   ✅ FOUND user with ${format.label}! User: ${user.name} (${user.email}), phone in DB: "${user.phone}"`);
+        logger.info('Matched user by phone format', {
+          strategy: format.label,
+          userId: user.id,
+          email: user.email,
+          phone: this.maskPhone(user.phone),
+        });
         return user;
       }
-      console.log(`   ❌ No match for ${format.label}`);
     }
 
-    // Debug: List all users and their phones for comparison
-    console.log(`   ⚠️ No user found. Listing all users' phones for debugging:`);
-    const allUsersSnapshot = await collection.limit(20).get();
-    allUsersSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      console.log(`      - User "${data.name}": phone="${data.phone}"`);
+    logger.warn('No user matched any generated phone format', {
+      inputPhone: this.maskPhone(phone),
+      attemptedStrategies: uniqueFormats.map((format) => format.label),
     });
 
     return null;
@@ -134,6 +138,15 @@ export class UserRepository {
     return formatsToTry.filter((format, index, allFormats) =>
       allFormats.findIndex(candidate => candidate.value === format.value) === index
     );
+  }
+
+  private static maskPhone(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length <= 4) {
+      return digits;
+    }
+
+    return `${digits.slice(0, 2)}***${digits.slice(-2)}`;
   }
 
   /**
