@@ -66,15 +66,13 @@ describe('🏗️ Infrastructure - Services', () => {
     });
   });
 
-  describe('Redis', () => {
-    it('should be connected (if WhatsApp features work)', async () => {
+  describe('WhatsApp integration', () => {
+    it('should expose the WhatsApp status endpoint', async () => {
       const api = new ApiClient();
       
       try {
         await api.loginAsAdmin();
-        // Check WhatsApp status endpoint which uses Redis
         const response = await api.get('/whatsapp/status');
-        // Should not fail with connection error
         expect([200, 401, 404]).toContain(response.status);
       } catch (e) {
         if (!config.isCloud) {

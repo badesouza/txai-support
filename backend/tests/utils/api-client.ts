@@ -81,18 +81,6 @@ export class ApiClient {
       .set(this.getHeaders());
   }
 
-  async uploadFile(path: string, fieldName: string, filePath: string): Promise<request.Response> {
-    const req = request(this.baseUrl)
-      .post(path)
-      .attach(fieldName, filePath);
-    
-    if (this.token) {
-      req.set('Authorization', `Bearer ${this.token}`);
-    }
-    
-    return req;
-  }
-
   // Authentication helpers
   async login(email: string, password: string): Promise<{ token: string; user: any }> {
     const response = await this.post('/users/login', { email, password });
@@ -116,18 +104,5 @@ export class ApiClient {
   }
 }
 
-// Singleton for shared use
-let defaultClient: ApiClient | null = null;
-
-export function getApiClient(): ApiClient {
-  if (!defaultClient) {
-    defaultClient = new ApiClient();
-  }
-  return defaultClient;
-}
-
-export function createApiClient(baseUrl?: string): ApiClient {
-  return new ApiClient(baseUrl);
-}
 
 

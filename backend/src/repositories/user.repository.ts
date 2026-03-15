@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const db = getFirestore();
 const collection = db.collection(Collections.USERS);
+type PhoneSearchFormat = { label: string; value: string };
 
 export class UserRepository {
   /**
@@ -68,54 +69,8 @@ export class UserRepository {
     console.log(`📞 [UserRepository.findByPhone] Searching for phone:`);
     console.log(`   - Input phone: "${phone}"`);
     console.log(`   - Normalized (digits only): "${normalizedPhone}"`);
-    
-    // Build list of formats to try
-    const formatsToTry: { label: string; value: string }[] = [
-      { label: 'exact', value: phone },
-      { label: 'normalized', value: normalizedPhone },
-      { label: 'with 55 prefix', value: `55${normalizedPhone}` },
-    ];
 
-    // Handle Brazilian number variations
-    if (normalizedPhone.startsWith('55') && normalizedPhone.length >= 12) {
-      const withoutCountry = normalizedPhone.slice(2); // Remove 55
-      formatsToTry.push({ label: 'without 55 prefix', value: withoutCountry });
-
-      // Brazilian mobile number fix: WhatsApp sometimes sends without the 9th digit
-      // Format: 55 + DDD(2) + mobile(8 or 9 digits)
-      // If we have 55 + 10 digits (old format), try adding 9 after DDD
-      if (withoutCountry.length === 10) {
-        const ddd = withoutCountry.slice(0, 2);
-        const number = withoutCountry.slice(2);
-        // Add '9' prefix to make it 9-digit mobile
-        const withNine = `55${ddd}9${number}`;
-        formatsToTry.push({ label: 'BR mobile with 9 added', value: withNine });
-        formatsToTry.push({ label: 'BR mobile with 9 added (no 55)', value: `${ddd}9${number}` });
-      }
-      
-      // If we have 55 + 11 digits (new format), try without the 9
-      if (withoutCountry.length === 11 && withoutCountry[2] === '9') {
-        const ddd = withoutCountry.slice(0, 2);
-        const numberWithoutNine = withoutCountry.slice(3);
-        const withoutNine = `55${ddd}${numberWithoutNine}`;
-        formatsToTry.push({ label: 'BR mobile without 9', value: withoutNine });
-      }
-    }
-    
-    // Handle case where input doesn't have country code
-    if (!normalizedPhone.startsWith('55') && normalizedPhone.length >= 10) {
-      // Input: DDD(2) + mobile(8 or 9 digits)
-      if (normalizedPhone.length === 10) {
-        const ddd = normalizedPhone.slice(0, 2);
-        const number = normalizedPhone.slice(2);
-        formatsToTry.push({ label: 'with 55 and 9 added', value: `55${ddd}9${number}` });
-      }
-    }
-
-    // Remove duplicates
-    const uniqueFormats = formatsToTry.filter((f, i, arr) => 
-      arr.findIndex(x => x.value === f.value) === i
-    );
+    const uniqueFormats = this.buildPhoneFormatsToTry(phone, normalizedPhone);
 
     console.log(`   - Formats to try (${uniqueFormats.length}): ${uniqueFormats.map(f => `${f.label}="${f.value}"`).join(', ')}`);
     
@@ -143,6 +98,42 @@ export class UserRepository {
     });
 
     return null;
+  }
+
+  private static buildPhoneFormatsToTry(phone: string, normalizedPhone: string): PhoneSearchFormat[] {
+    const formatsToTry: PhoneSearchFormat[] = [
+      { label: 'exact', value: phone },
+      { label: 'normalized', value: normalizedPhone },
+      { label: 'with 55 prefix', value: `55${normalizedPhone}` },
+    ];
+
+    if (normalizedPhone.startsWith('55') && normalizedPhone.length >= 12) {
+      const withoutCountry = normalizedPhone.slice(2);
+      formatsToTry.push({ label: 'without 55 prefix', value: withoutCountry });
+
+      if (withoutCountry.length === 10) {
+        const ddd = withoutCountry.slice(0, 2);
+        const number = withoutCountry.slice(2);
+        formatsToTry.push({ label: 'BR mobile with 9 added', value: `55${ddd}9${number}` });
+        formatsToTry.push({ label: 'BR mobile with 9 added (no 55)', value: `${ddd}9${number}` });
+      }
+
+      if (withoutCountry.length === 11 && withoutCountry[2] === '9') {
+        const ddd = withoutCountry.slice(0, 2);
+        const numberWithoutNine = withoutCountry.slice(3);
+        formatsToTry.push({ label: 'BR mobile without 9', value: `55${ddd}${numberWithoutNine}` });
+      }
+    }
+
+    if (!normalizedPhone.startsWith('55') && normalizedPhone.length === 10) {
+      const ddd = normalizedPhone.slice(0, 2);
+      const number = normalizedPhone.slice(2);
+      formatsToTry.push({ label: 'with 55 and 9 added', value: `55${ddd}9${number}` });
+    }
+
+    return formatsToTry.filter((format, index, allFormats) =>
+      allFormats.findIndex(candidate => candidate.value === format.value) === index
+    );
   }
 
   /**

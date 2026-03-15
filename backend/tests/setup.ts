@@ -14,41 +14,6 @@ process.env.API_URL = process.env.API_URL || 'http://localhost:3001/api';
 process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || 'localhost:8082';
 process.env.GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'local-dev';
 
-// Extend Jest matchers
-expect.extend({
-  toBeValidUUID(received: string) {
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const pass = uuidRegex.test(received);
-    return {
-      pass,
-      message: () => pass
-        ? `Expected ${received} not to be a valid UUID`
-        : `Expected ${received} to be a valid UUID`
-    };
-  },
-  
-  toBeISODate(received: string) {
-    const date = new Date(received);
-    const pass = !isNaN(date.getTime()) && received.includes('T');
-    return {
-      pass,
-      message: () => pass
-        ? `Expected ${received} not to be a valid ISO date`
-        : `Expected ${received} to be a valid ISO date`
-    };
-  }
-});
-
-// Declare custom matchers
-declare global {
-  namespace jest {
-    interface Matchers<R> {
-      toBeValidUUID(): R;
-      toBeISODate(): R;
-    }
-  }
-}
-
 // Global test timeout
 jest.setTimeout(30000);
 
@@ -59,5 +24,6 @@ jest.setTimeout(30000);
 //   debug: jest.fn(),
 //   info: jest.fn()
 // };
+
 
 

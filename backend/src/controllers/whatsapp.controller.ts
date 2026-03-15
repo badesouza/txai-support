@@ -11,6 +11,16 @@ export class WhatsAppController {
   private lastQrCodeGenerated: string | null = null;
   private readonly QR_CODE_DEBOUNCE = 5000; // 5 segundos entre requisições de QR Code
 
+  private requireSessionParam(req: Request, res: Response): string | null {
+    const { session } = req.params;
+    if (!session) {
+      res.status(400).json({ error: 'Session name is required' });
+      return null;
+    }
+
+    return session;
+  }
+
   async initialize(req: Request, res: Response) {
     try {
       await whatsappService.initialize();
@@ -235,11 +245,8 @@ export class WhatsAppController {
    */
   async deleteSession(req: Request, res: Response) {
     try {
-      const { session } = req.params;
-      
-      if (!session) {
-        return res.status(400).json({ error: 'Session name is required' });
-      }
+      const session = this.requireSessionParam(req, res);
+      if (!session) return;
 
       await whatsappService.deleteSession(session);
       res.json({ success: true, message: `Session ${session} deleted` });
@@ -255,11 +262,8 @@ export class WhatsAppController {
    */
   async getSessionInfo(req: Request, res: Response) {
     try {
-      const { session } = req.params;
-      
-      if (!session) {
-        return res.status(400).json({ error: 'Session name is required' });
-      }
+      const session = this.requireSessionParam(req, res);
+      if (!session) return;
 
       const info = await whatsappService.getSessionInfo(session);
       res.json(info);
@@ -275,11 +279,8 @@ export class WhatsAppController {
    */
   async getSessionQrCode(req: Request, res: Response) {
     try {
-      const { session } = req.params;
-      
-      if (!session) {
-        return res.status(400).json({ error: 'Session name is required' });
-      }
+      const session = this.requireSessionParam(req, res);
+      if (!session) return;
 
       // First check connection status
       const { isConnected } = await whatsappService.getConnectionStatus(session);
@@ -307,11 +308,8 @@ export class WhatsAppController {
    */
   async getSessionStatus(req: Request, res: Response) {
     try {
-      const { session } = req.params;
-      
-      if (!session) {
-        return res.status(400).json({ error: 'Session name is required' });
-      }
+      const session = this.requireSessionParam(req, res);
+      if (!session) return;
 
       const { isConnected, hasQRCode, qrCode } = await whatsappService.getConnectionStatus(session);
       res.json({ session, connected: isConnected, hasQRCode, qrCode: qrCode || null });
@@ -327,11 +325,8 @@ export class WhatsAppController {
    */
   async initializeSession(req: Request, res: Response) {
     try {
-      const { session } = req.params;
-      
-      if (!session) {
-        return res.status(400).json({ error: 'Session name is required' });
-      }
+      const session = this.requireSessionParam(req, res);
+      if (!session) return;
 
       await whatsappService.initialize(session);
       res.json({ success: true, message: `Session ${session} initialization requested` });
@@ -347,11 +342,8 @@ export class WhatsAppController {
    */
   async disconnectSession(req: Request, res: Response) {
     try {
-      const { session } = req.params;
-      
-      if (!session) {
-        return res.status(400).json({ error: 'Session name is required' });
-      }
+      const session = this.requireSessionParam(req, res);
+      if (!session) return;
 
       await whatsappService.disconnect(session);
       res.json({ success: true, message: `Session ${session} disconnected` });
@@ -368,12 +360,9 @@ export class WhatsAppController {
    */
   async sendMessageViaSession(req: Request, res: Response) {
     try {
-      const { session } = req.params;
+      const session = this.requireSessionParam(req, res);
       const { phone, message } = req.body;
-      
-      if (!session) {
-        return res.status(400).json({ error: 'Session name is required' });
-      }
+      if (!session) return;
       
       if (!phone || !message) {
         return res.status(400).json({ error: 'Phone and message are required' });

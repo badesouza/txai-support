@@ -7,6 +7,28 @@ import { Profile } from '../types/models';
 import { normalizePhone, formatPhoneForDisplay } from '../utils/phone';
 
 export class UserController {
+    private static serializeUser(user: { id: string; email: string; name: string; phone: string; profile: Profile }) {
+        return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            phone: formatPhoneForDisplay(user.phone),
+            profile: user.profile
+        };
+    }
+
+    private static normalizePhoneOrReject(phone: string, res: Response): string | null {
+        try {
+            return normalizePhone(phone);
+        } catch (phoneError) {
+            res.status(400).json({
+                message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
+                field: 'phone'
+            });
+            return null;
+        }
+    }
+
     static async register(req: Request, res: Response) {
         try {
             const { confirmPassword: _confirmPassword, ...userData } = req.body;
@@ -33,15 +55,9 @@ export class UserController {
 
             const hashedPassword = await bcrypt.hash(userData.password, 10);
 
-            // Normalize and validate phone number (E.164 format for WhatsApp)
-            let normalizedPhone: string;
-            try {
-                normalizedPhone = normalizePhone(userData.phone);
-            } catch (phoneError) {
-                return res.status(400).json({ 
-                    message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
-                    field: 'phone'
-                });
+            const normalizedPhone = this.normalizePhoneOrReject(userData.phone, res);
+            if (!normalizedPhone) {
+                return;
             }
 
             const user = await UserRepository.create({
@@ -60,13 +76,7 @@ export class UserController {
             );
 
             res.status(201).json({
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    phone: formatPhoneForDisplay(user.phone),
-                    profile: user.profile
-                },
+                user: this.serializeUser(user),
                 token
             });
         } catch (error) {
@@ -106,13 +116,7 @@ export class UserController {
             );
 
             res.json({
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    phone: formatPhoneForDisplay(user.phone),
-                    profile: user.profile
-                },
+                user: this.serializeUser(user),
                 token
             });
         } catch (error) {
@@ -136,13 +140,7 @@ export class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            res.json({
-                id: user.id,
-                email: user.email,
-                name: user.name,
-                phone: formatPhoneForDisplay(user.phone),
-                profile: user.profile
-            });
+            res.json(this.serializeUser(user));
         } catch (error) {
             res.status(500).json({ message: 'Error fetching profile' });
         }
@@ -159,14 +157,11 @@ export class UserController {
             
             // Validate and normalize phone if updating
             if (updateData.phone) {
-                try {
-                    updateData.phone = normalizePhone(updateData.phone);
-                } catch (phoneError) {
-                    return res.status(400).json({ 
-                        message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
-                        field: 'phone'
-                    });
+                const normalizedPhone = this.normalizePhoneOrReject(updateData.phone, res);
+                if (!normalizedPhone) {
+                    return;
                 }
+                updateData.phone = normalizedPhone;
             }
             
             const updatedUser = await UserRepository.update(String(userId), updateData);
@@ -175,13 +170,7 @@ export class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            res.json({
-                id: updatedUser.id,
-                email: updatedUser.email,
-                name: updatedUser.name,
-                phone: formatPhoneForDisplay(updatedUser.phone),
-                profile: updatedUser.profile
-            });
+            res.json(this.serializeUser(updatedUser));
         } catch (error) {
             res.status(500).json({ message: 'Error updating profile' });
         }
@@ -227,14 +216,11 @@ export class UserController {
 
             // Validate and normalize phone if present
             if (updateData.phone) {
-                try {
-                    updateData.phone = normalizePhone(updateData.phone);
-                } catch (phoneError) {
-                    return res.status(400).json({ 
-                        message: phoneError instanceof Error ? phoneError.message : 'Formato de telefone inválido',
-                        field: 'phone'
-                    });
+                const normalizedPhone = this.normalizePhoneOrReject(updateData.phone, res);
+                if (!normalizedPhone) {
+                    return;
                 }
+                updateData.phone = normalizedPhone;
             }
 
             // Validar e converter o perfil se estiver presente
@@ -263,13 +249,7 @@ export class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            res.json({
-                id: updatedUser.id,
-                email: updatedUser.email,
-                name: updatedUser.name,
-                phone: formatPhoneForDisplay(updatedUser.phone),
-                profile: updatedUser.profile
-            });
+            res.json(this.serializeUser(updatedUser));
         } catch (error: any) {
             console.error('Erro ao atualizar usuário:', error);
             res.status(500).json({ 
@@ -309,11 +289,7 @@ export class UserController {
 
             // Format phones for display
             const formattedUsers = filteredUsers.map(user => ({
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                phone: formatPhoneForDisplay(user.phone),
-                profile: user.profile,
+                ...this.serializeUser(user),
                 createdAt: user.createdAt,
                 updatedAt: user.updatedAt
             }));
@@ -390,11 +366,7 @@ export class UserController {
             console.log('Usuário criado:', user);
 
             res.status(201).json({
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                phone: formatPhoneForDisplay(user.phone),
-                profile: user.profile
+                ...this.serializeUser(user)
             });
         } catch (error) {
             console.error('Erro ao criar usuário:', error);
@@ -422,13 +394,7 @@ export class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            res.json({
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                phone: formatPhoneForDisplay(user.phone),
-                profile: user.profile
-            });
+            res.json(this.serializeUser(user));
         } catch (error) {
             res.status(500).json({ message: 'Error fetching user' });
         }

@@ -36,34 +36,6 @@ export const isApiAvailable = async (): Promise<boolean> => {
 };
 
 /**
- * Skip test if API is not available
- */
-export const skipIfNoApi = async (testFn: () => Promise<void>) => {
-  const available = await isApiAvailable();
-  if (!available) {
-    console.log('    ⚠️ API not available - skipping');
-    return;
-  }
-  await testFn();
-};
-
-/**
- * Conditional describe block
- * Only runs tests if API is available
- */
-export const describeIfApi = (name: string, fn: () => void) => {
-  describe(name, () => {
-    beforeAll(async () => {
-      const available = await isApiAvailable();
-      if (!available) {
-        console.log(`\n  ⚠️ Skipping "${name}" - API not available\n`);
-      }
-    });
-    fn();
-  });
-};
-
-/**
  * Create a test that skips if API unavailable
  */
 export const itIfApi = (name: string, fn: () => Promise<void>, timeout?: number) => {
@@ -76,4 +48,5 @@ export const itIfApi = (name: string, fn: () => Promise<void>, timeout?: number)
     await fn();
   }, timeout);
 };
+
 
