@@ -73,6 +73,7 @@ resource "google_project_iam_member" "tf_admin_roles" {
     "roles/dns.admin",
     "roles/datastore.owner",
     "roles/cloudbuild.builds.editor",
+    "roles/logging.viewer",
   ])
 
   project = var.project_id
