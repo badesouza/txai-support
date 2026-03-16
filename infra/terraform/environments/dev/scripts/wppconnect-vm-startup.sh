@@ -123,7 +123,7 @@ cat > "${CONFIG_DIR}/config.json" <<EOF
   "port": "21465",
   "deviceName": "WPPConnect-VM",
   "poweredBy": "WPPConnect-Server",
-  "startAllSession": true,
+  "startAllSession": false,
   "tokenStoreType": "file",
   "maxListeners": 15,
   "customUserDataDir": "/usr/src/wpp-server/userDataDir/",
@@ -197,6 +197,11 @@ networks:
 EOF
 
 cd "${STACK_DIR}"
+# Let the backend own session startup so we do not race Chromium on boot.
+rm -f "${USER_DATA_DIR}/${SESSION_NAME}/SingletonLock" \
+      "${USER_DATA_DIR}/${SESSION_NAME}/SingletonCookie" \
+      "${USER_DATA_DIR}/${SESSION_NAME}/SingletonSocket" \
+      "${USER_DATA_DIR}/${SESSION_NAME}/DevToolsActivePort"
 docker compose up -d --remove-orphans
 
 cat > /etc/systemd/system/wppconnect-stack.service <<EOF
