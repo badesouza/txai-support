@@ -79,9 +79,6 @@ resource "google_project_iam_member" "ci_deployer_roles" {
     "roles/artifactregistry.writer",
     "roles/iam.serviceAccountUser",
     "roles/cloudbuild.builds.editor",
-    "roles/compute.admin",
-    "roles/dns.admin",
-    "roles/datastore.owner",
   ])
 
   project = var.project_id
