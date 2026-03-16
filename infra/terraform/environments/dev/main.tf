@@ -107,6 +107,18 @@ resource "google_service_account_iam_member" "runtime_api_token_creator" {
   member             = "serviceAccount:${google_service_account.runtime_api.email}"
 }
 
+resource "google_service_account_iam_member" "runtime_api_tf_admin_user" {
+  service_account_id = google_service_account.runtime_api.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:tf-admin@${var.project_id}.iam.gserviceaccount.com"
+}
+
+resource "google_service_account_iam_member" "runtime_whatsapp_tf_admin_user" {
+  service_account_id = google_service_account.runtime_whatsapp.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:tf-admin@${var.project_id}.iam.gserviceaccount.com"
+}
+
 locals {
   wppconnect_fqdn = "${var.wpp_subdomain}.${var.domain_name}"
   backend_fqdn    = "${var.backend_subdomain}.${var.domain_name}"

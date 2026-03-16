@@ -69,9 +69,20 @@ resource "google_project_iam_member" "tf_admin_roles" {
     "roles/cloudsql.admin",
     "roles/storage.admin",
     "roles/logging.admin",
+    "roles/compute.admin",
+    "roles/dns.admin",
+    "roles/datastore.owner",
   ])
 
   project = var.project_id
   role    = each.value
+  member  = "serviceAccount:${google_service_account.tf_admin.email}"
+}
+
+resource "google_project_iam_member" "tf_admin_dns_host_project_role" {
+  count = var.dns_project_id != "" && var.dns_project_id != var.project_id ? 1 : 0
+
+  project = var.dns_project_id
+  role    = "roles/dns.admin"
   member  = "serviceAccount:${google_service_account.tf_admin.email}"
 }

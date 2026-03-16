@@ -24,3 +24,9 @@ variable "state_bucket_name" {
   description = "Optional explicit Terraform state bucket name"
   default     = ""
 }
+
+variable "dns_project_id" {
+  type        = string
+  description = "Optional Cloud DNS host project id when DNS zones live outside the main project"
+  default     = ""
+}
