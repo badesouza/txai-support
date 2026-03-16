@@ -8,6 +8,9 @@ on:
       - 'backend/**'
       - 'frontend/**'
       - 'infra/terraform/**'
+      - 'scripts/gcp/**'
+      - 'wppconnect/**'
+      - '.github/actions/**'
       - '.github/workflows/deploy.yml'
   # Manual deployment for all environments
   workflow_dispatch:
@@ -33,6 +36,15 @@ on:
           - frontend
           - infra-backend
           - backend-frontend
+      wppconnect_mode:
+        description: 'How to handle WPPConnect during deployment'
+        required: true
+        default: 'skip'
+        type: choice
+        options:
+          - skip
+          - redeploy_latest_no_build
+          - rebuild_and_redeploy
       ref:
         description: 'Branch, tag, or commit SHA to deploy'
         required: true
@@ -59,11 +71,17 @@ jobs:
     outputs:
       environment: ${{ steps.params.outputs.environment }}
       components: ${{ steps.params.outputs.components }}
+      wppconnect_mode: ${{ steps.params.outputs.wppconnect_mode }}
       ref: ${{ steps.params.outputs.ref }}
+      duration_seconds: ${{ steps.job_timer.outputs.duration_seconds }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Fetch full history for git diff
+
+      - name: Start timer
+        id: timer_start
+        run: echo "epoch=$(date +%s)" >> $GITHUB_OUTPUT
       
       - name: Set deployment parameters
         id: params
@@ -72,6 +90,7 @@ jobs:
             # Manual deployment - use inputs
             echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
             echo "components=${{ inputs.components }}" >> $GITHUB_OUTPUT
+            echo "wppconnect_mode=${{ inputs.wppconnect_mode }}" >> $GITHUB_OUTPUT
             echo "ref=${{ inputs.ref }}" >> $GITHUB_OUTPUT
           else
             # Auto-deployment on push to main
@@ -79,15 +98,24 @@ jobs:
             echo "ref=${{ github.sha }}" >> $GITHUB_OUTPUT
             
             # Determine components based on changed files
+            CHANGED_FILES="$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})"
             COMPONENTS=""
-            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "^infra/terraform/"; then
+            WPP_MODE="skip"
+
+            if echo "$CHANGED_FILES" | grep -q "^infra/terraform/"; then
               COMPONENTS="${COMPONENTS}infra,"
             fi
-            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "^backend/"; then
+            if echo "$CHANGED_FILES" | grep -q "^backend/"; then
               COMPONENTS="${COMPONENTS}backend,"
             fi
-            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "^frontend/"; then
+            if echo "$CHANGED_FILES" | grep -q "^frontend/"; then
               COMPONENTS="${COMPONENTS}frontend,"
+            fi
+
+            if echo "$CHANGED_FILES" | grep -Eq "^(wppconnect/|scripts/gcp/deploy-wppconnect\.sh)"; then
+              WPP_MODE="rebuild_and_redeploy"
+            elif echo "$CHANGED_FILES" | grep -Eq "^infra/terraform/.*/scripts/wppconnect-vm-startup\.sh$"; then
+              WPP_MODE="redeploy_latest_no_build"
             fi
             
             # Default to backend-frontend if no specific changes detected
@@ -107,7 +135,13 @@ jobs:
             fi
             
             echo "components=${COMPONENTS}" >> $GITHUB_OUTPUT
+            echo "wppconnect_mode=${WPP_MODE}" >> $GITHUB_OUTPUT
           fi
+
+      - name: Record duration
+        if: always()
+        id: job_timer
+        run: echo "duration_seconds=$(( $(date +%s) - ${{ steps.timer_start.outputs.epoch }} ))" >> $GITHUB_OUTPUT
 
   # ============================================
   # INFRASTRUCTURE DEPLOYMENT
@@ -123,10 +157,19 @@ jobs:
       backend_service_name: ${{ steps.outputs.outputs.backend_service_name }}
       artifact_repo_url: ${{ steps.outputs.outputs.artifact_repo_url }}
       wppconnect_url: ${{ steps.outputs.outputs.wppconnect_url }}
+      wppconnect_fqdn: ${{ steps.outputs.outputs.wppconnect_fqdn }}
+      wppconnect_vm_name: ${{ steps.outputs.outputs.wppconnect_vm_name }}
+      wppconnect_vm_zone: ${{ steps.outputs.outputs.wppconnect_vm_zone }}
+      wppconnect_artifact_repo_url: ${{ steps.outputs.outputs.wppconnect_artifact_repo_url }}
+      duration_seconds: ${{ steps.job_timer.outputs.duration_seconds }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.determine-deployment.outputs.ref }}
+
+      - name: Start timer
+        id: timer_start
+        run: echo "epoch=$(date +%s)" >> $GITHUB_OUTPUT
 
       - uses: google-github-actions/auth@v2
         with:
@@ -162,27 +205,40 @@ jobs:
           echo "backend_service_name=$(tofu output -raw backend_service_name)" >> $GITHUB_OUTPUT
           echo "artifact_repo_url=$(tofu output -raw artifact_repo_url)" >> $GITHUB_OUTPUT
           echo "wppconnect_url=$(tofu output -raw wppconnect_base_url)" >> $GITHUB_OUTPUT
+          echo "wppconnect_fqdn=$(tofu output -raw wppconnect_fqdn)" >> $GITHUB_OUTPUT
+          echo "wppconnect_vm_name=$(tofu output -raw wppconnect_vm_name)" >> $GITHUB_OUTPUT
+          echo "wppconnect_vm_zone=$(tofu output -raw wppconnect_vm_zone)" >> $GITHUB_OUTPUT
+          echo "wppconnect_artifact_repo_url=$(tofu output -raw wppconnect_artifact_repo_url)" >> $GITHUB_OUTPUT
         working-directory: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
 
+      - name: Record duration
+        if: always()
+        id: job_timer
+        run: echo "duration_seconds=$(( $(date +%s) - ${{ steps.timer_start.outputs.epoch }} ))" >> $GITHUB_OUTPUT
+
   # ============================================
-  # BACKEND DEPLOYMENT
+  # WPPCONNECT DEPLOYMENT
   # ============================================
-  deploy-backend:
-    name: Deploy Backend
+  deploy-wppconnect:
+    name: Deploy WPPConnect
     needs: [determine-deployment, deploy-infra]
-    # Run even if deploy-infra was skipped
     if: |
-      always() && 
-      contains(fromJSON('["all", "backend", "infra-backend", "backend-frontend"]'), needs.determine-deployment.outputs.components) &&
+      always() &&
+      needs.determine-deployment.outputs.wppconnect_mode != 'skip' &&
       (needs.deploy-infra.result == 'success' || needs.deploy-infra.result == 'skipped')
     runs-on: ubuntu-latest
     environment: ${{ needs.determine-deployment.outputs.environment }}
     outputs:
-      backend_url: ${{ steps.deploy.outputs.backend_url }}
+      duration_seconds: ${{ steps.job_timer.outputs.duration_seconds }}
+      deploy_mode: ${{ steps.deploy.outputs.deploy_mode }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.determine-deployment.outputs.ref }}
+
+      - name: Start timer
+        id: timer_start
+        run: echo "epoch=$(date +%s)" >> $GITHUB_OUTPUT
 
       - uses: google-github-actions/auth@v2
         with:
@@ -193,6 +249,102 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - uses: ./.github/actions/setup-tofu-cache
+        if: needs.deploy-infra.outputs.wppconnect_artifact_repo_url == ''
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          lockfile: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}/.terraform.lock.hcl
+
+      - name: Get Terraform Outputs
+        id: tf-outputs
+        run: |
+          if [ -n "${{ needs.deploy-infra.outputs.wppconnect_artifact_repo_url }}" ]; then
+            echo "wppconnect_artifact_repo_url=${{ needs.deploy-infra.outputs.wppconnect_artifact_repo_url }}" >> $GITHUB_OUTPUT
+            echo "wppconnect_fqdn=${{ needs.deploy-infra.outputs.wppconnect_fqdn }}" >> $GITHUB_OUTPUT
+            echo "wppconnect_vm_name=${{ needs.deploy-infra.outputs.wppconnect_vm_name }}" >> $GITHUB_OUTPUT
+            echo "wppconnect_vm_zone=${{ needs.deploy-infra.outputs.wppconnect_vm_zone }}" >> $GITHUB_OUTPUT
+          else
+            cd infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}
+            tofu init \
+              -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+              -backend-config="prefix=txai-support/${{ needs.determine-deployment.outputs.environment }}"
+            echo "wppconnect_artifact_repo_url=$(tofu output -raw wppconnect_artifact_repo_url)" >> $GITHUB_OUTPUT
+            echo "wppconnect_fqdn=$(tofu output -raw wppconnect_fqdn)" >> $GITHUB_OUTPUT
+            echo "wppconnect_vm_name=$(tofu output -raw wppconnect_vm_name)" >> $GITHUB_OUTPUT
+            echo "wppconnect_vm_zone=$(tofu output -raw wppconnect_vm_zone)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy WPPConnect
+        id: deploy
+        run: |
+          case "${{ needs.determine-deployment.outputs.wppconnect_mode }}" in
+            redeploy_latest_no_build)
+              DEPLOY_MODE="latest-no-build"
+              FORCE_REBUILD="false"
+              ;;
+            rebuild_and_redeploy)
+              DEPLOY_MODE="rebuild"
+              FORCE_REBUILD="true"
+              ;;
+            *)
+              echo "Unsupported wppconnect_mode: ${{ needs.determine-deployment.outputs.wppconnect_mode }}"
+              exit 1
+              ;;
+          esac
+
+          export PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}"
+          export REGION="${{ vars.GCP_REGION || 'us-central1' }}"
+          export WPPCONNECT_AR_REPO="$(echo "${{ steps.tf-outputs.outputs.wppconnect_artifact_repo_url }}" | awk -F'/' '{print $3}')"
+          export WPPCONNECT_VM_NAME="${{ steps.tf-outputs.outputs.wppconnect_vm_name }}"
+          export WPPCONNECT_VM_ZONE="${{ steps.tf-outputs.outputs.wppconnect_vm_zone }}"
+          export WPPCONNECT_FQDN="${{ steps.tf-outputs.outputs.wppconnect_fqdn }}"
+          export WPPCONNECT_DEPLOY_MODE="${DEPLOY_MODE}"
+          export FORCE_WPPCONNECT_REBUILD="${FORCE_REBUILD}"
+
+          ./scripts/gcp/deploy-wppconnect.sh
+
+          echo "deploy_mode=${DEPLOY_MODE}" >> $GITHUB_OUTPUT
+
+      - name: Record duration
+        if: always()
+        id: job_timer
+        run: echo "duration_seconds=$(( $(date +%s) - ${{ steps.timer_start.outputs.epoch }} ))" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # BACKEND DEPLOYMENT
+  # ============================================
+  deploy-backend:
+    name: Deploy Backend
+    needs: [determine-deployment, deploy-infra, deploy-wppconnect]
+    # Run even if deploy-infra was skipped
+    if: |
+      always() && 
+      contains(fromJSON('["all", "backend", "infra-backend", "backend-frontend"]'), needs.determine-deployment.outputs.components) &&
+      (needs.deploy-infra.result == 'success' || needs.deploy-infra.result == 'skipped') &&
+      (needs.deploy-wppconnect.result == 'success' || needs.deploy-wppconnect.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-deployment.outputs.environment }}
+    outputs:
+      backend_url: ${{ steps.deploy.outputs.backend_url }}
+      duration_seconds: ${{ steps.job_timer.outputs.duration_seconds }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.determine-deployment.outputs.ref }}
+
+      - name: Start timer
+        id: timer_start
+        run: echo "epoch=$(date +%s)" >> $GITHUB_OUTPUT
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_TF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - uses: ./.github/actions/setup-tofu-cache
+        if: needs.deploy-infra.outputs.backend_url == ''
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           lockfile: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}/.terraform.lock.hcl
@@ -217,9 +369,6 @@ jobs:
             echo "artifact_repo_url=$(tofu output -raw artifact_repo_url)" >> $GITHUB_OUTPUT
             echo "wppconnect_url=$(tofu output -raw wppconnect_base_url)" >> $GITHUB_OUTPUT
           fi
-        env:
-          TOFU_VERSION: ${{ env.TOFU_VERSION }}
-
       - name: Configure Docker for Artifact Registry
         run: |
           REGION="${{ vars.GCP_REGION || 'us-central1' }}"
@@ -283,6 +432,11 @@ jobs:
           echo "Warning: Backend health check timed out"
           exit 0  # Don't fail the workflow
 
+      - name: Record duration
+        if: always()
+        id: job_timer
+        run: echo "duration_seconds=$(( $(date +%s) - ${{ steps.timer_start.outputs.epoch }} ))" >> $GITHUB_OUTPUT
+
   # ============================================
   # FRONTEND DEPLOYMENT
   # ============================================
@@ -295,10 +449,16 @@ jobs:
     needs: [determine-deployment, deploy-infra, deploy-backend]
     runs-on: ubuntu-latest
     environment: ${{ needs.determine-deployment.outputs.environment }}
+    outputs:
+      duration_seconds: ${{ steps.job_timer.outputs.duration_seconds }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.determine-deployment.outputs.ref }}
+
+      - name: Start timer
+        id: timer_start
+        run: echo "epoch=$(date +%s)" >> $GITHUB_OUTPUT
 
       - uses: actions/setup-node@v4
         with:
@@ -312,6 +472,7 @@ jobs:
           service_account: ${{ secrets.GCP_TF_SERVICE_ACCOUNT }}
 
       - uses: ./.github/actions/setup-tofu-cache
+        if: needs.deploy-backend.outputs.backend_url == '' && needs.deploy-infra.outputs.backend_url == ''
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           lockfile: infra/terraform/environments/${{ needs.determine-deployment.outputs.environment }}/.terraform.lock.hcl
@@ -349,27 +510,65 @@ jobs:
       - name: Deploy to Firebase Hosting
         run: npx firebase deploy --only hosting --project "${{ secrets.GCP_PROJECT_ID }}" --token "${{ secrets.FIREBASE_TOKEN }}"
 
+      - name: Record duration
+        if: always()
+        id: job_timer
+        run: echo "duration_seconds=$(( $(date +%s) - ${{ steps.timer_start.outputs.epoch }} ))" >> $GITHUB_OUTPUT
+
   # ============================================
   # SUMMARY
   # ============================================
   summary:
     name: Deployment Summary
     if: always()
-    needs: [determine-deployment, deploy-infra, deploy-backend, deploy-frontend]
+    needs: [determine-deployment, deploy-infra, deploy-wppconnect, deploy-backend, deploy-frontend]
     runs-on: ubuntu-latest
     steps:
       - name: Print Summary
         run: |
+          format_duration() {
+            local total="${1:-}"
+            if [ -z "${total}" ]; then
+              echo "skipped"
+              return
+            fi
+
+            local minutes=$(( total / 60 ))
+            local seconds=$(( total % 60 ))
+            printf "%sm %ss" "${minutes}" "${seconds}"
+          }
+
+          value_or_zero() {
+            local value="${1:-}"
+            if [ -z "${value}" ]; then
+              echo "0"
+            else
+              echo "${value}"
+            fi
+          }
+
+          TOTAL_SECONDS=$(( \
+            $(value_or_zero "${{ needs.determine-deployment.outputs.duration_seconds }}") + \
+            $(value_or_zero "${{ needs.deploy-infra.outputs.duration_seconds }}") + \
+            $(value_or_zero "${{ needs.deploy-wppconnect.outputs.duration_seconds }}") + \
+            $(value_or_zero "${{ needs.deploy-backend.outputs.duration_seconds }}") + \
+            $(value_or_zero "${{ needs.deploy-frontend.outputs.duration_seconds }}") \
+          ))
+
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Infrastructure | ${{ needs.deploy-infra.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend | ${{ needs.deploy-backend.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Frontend | ${{ needs.deploy-frontend.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status | Approx. Duration |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Determine deployment | ${{ needs.determine-deployment.result || 'skipped' }} | $(format_duration "${{ needs.determine-deployment.outputs.duration_seconds }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| Infrastructure | ${{ needs.deploy-infra.result || 'skipped' }} | $(format_duration "${{ needs.deploy-infra.outputs.duration_seconds }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| WPPConnect | ${{ needs.deploy-wppconnect.result || 'skipped' }} | $(format_duration "${{ needs.deploy-wppconnect.outputs.duration_seconds }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ${{ needs.deploy-backend.result || 'skipped' }} | $(format_duration "${{ needs.deploy-backend.outputs.duration_seconds }}") |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | ${{ needs.deploy-frontend.result || 'skipped' }} | $(format_duration "${{ needs.deploy-frontend.outputs.duration_seconds }}") |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ needs.determine-deployment.outputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Ref:** \`${{ needs.determine-deployment.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Components:** \`${{ needs.determine-deployment.outputs.components }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**WPPConnect mode:** \`${{ needs.determine-deployment.outputs.wppconnect_mode }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Approx. total duration:** \`$(format_duration "${TOTAL_SECONDS}")\`" >> $GITHUB_STEP_SUMMARY
           echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
 

@@ -26,6 +26,7 @@ WPPCONNECT_IMAGE_NAME="${WPPCONNECT_IMAGE_NAME:-wppconnect-server}"
 WPPCONNECT_VM_NAME="${WPPCONNECT_VM_NAME:-wppconnect-server}"
 WPPCONNECT_VM_ZONE="${WPPCONNECT_VM_ZONE:-us-central1-a}"
 WPPCONNECT_FQDN="${WPPCONNECT_FQDN:-bizybox-dev.tazco-platform.com}"
+WPPCONNECT_DEPLOY_MODE="${WPPCONNECT_DEPLOY_MODE:-auto}"
 WPPCONNECT_UPSTREAM_REPO_URL="${WPPCONNECT_UPSTREAM_REPO_URL:-https://github.com/wppconnect-team/wppconnect-server.git}"
 WPPCONNECT_UPSTREAM_REF="${WPPCONNECT_UPSTREAM_REF:-87ae61d4e6f8a849e3f10c60704dfc1b00878805}"
 FORCE_WPPCONNECT_REBUILD="${FORCE_WPPCONNECT_REBUILD:-false}"
@@ -48,6 +49,15 @@ is_true() {
     *) return 1 ;;
   esac
 }
+
+case "${WPPCONNECT_DEPLOY_MODE}" in
+  auto|latest-no-build|rebuild) ;;
+  *)
+    log_error "Invalid WPPCONNECT_DEPLOY_MODE: ${WPPCONNECT_DEPLOY_MODE}"
+    log_error "Supported values: auto, latest-no-build, rebuild"
+    exit 1
+    ;;
+esac
 
 lookup_image_version_by_tag() {
   local image_base="$1"
@@ -80,30 +90,43 @@ resolve_ref_sha() {
   echo "${sha}"
 }
 
-log_info "Resolving upstream ref '${WPPCONNECT_UPSTREAM_REF}'..."
-RESOLVED_SHA="$(resolve_ref_sha "${WPPCONNECT_UPSTREAM_REPO_URL}" "${WPPCONNECT_UPSTREAM_REF}")"
-if [ -z "${RESOLVED_SHA}" ]; then
-  log_error "Failed to resolve upstream ref '${WPPCONNECT_UPSTREAM_REF}' in ${WPPCONNECT_UPSTREAM_REPO_URL}"
-  exit 1
-fi
-SHORT_SHA="${RESOLVED_SHA:0:12}"
 DATE_TAG="$(date +%F)"
 
 IMAGE_BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${WPPCONNECT_AR_REPO}/${WPPCONNECT_IMAGE_NAME}"
+IMAGE_VERSION=""
+RESOLVED_SHA=""
+SHORT_SHA=""
 IMAGE_URI_SHA="${IMAGE_BASE}:git-${SHORT_SHA}"
 IMAGE_URI_DATE="${IMAGE_BASE}:${DATE_TAG}"
 IMAGE_URI_LATEST="${IMAGE_BASE}:latest"
 
-log_info "Preparing custom WPPConnect image..."
-log_info "Upstream: ${WPPCONNECT_UPSTREAM_REPO_URL}@${RESOLVED_SHA}"
-log_info "Image:    ${IMAGE_URI_SHA}"
-IMAGE_VERSION="$(lookup_image_version_by_tag "${IMAGE_BASE}" "git-${SHORT_SHA}")"
-
-if [ -n "${IMAGE_VERSION}" ] && ! is_true "${FORCE_WPPCONNECT_REBUILD}"; then
-  log_info "Reusing existing WPPConnect image for git-${SHORT_SHA}."
+if [ "${WPPCONNECT_DEPLOY_MODE}" = "latest-no-build" ]; then
+  log_info "Reusing latest WPPConnect image from Artifact Registry without rebuilding..."
+  IMAGE_VERSION="$(lookup_image_version_by_tag "${IMAGE_BASE}" "latest")"
+  if [ -z "${IMAGE_VERSION}" ]; then
+    log_error "Could not resolve a 'latest' image for ${IMAGE_BASE}"
+    exit 1
+  fi
 else
-  TMP_CLOUDBUILD="$(mktemp)"
-  cat > "${TMP_CLOUDBUILD}" << 'EOF'
+  log_info "Resolving upstream ref '${WPPCONNECT_UPSTREAM_REF}'..."
+  RESOLVED_SHA="$(resolve_ref_sha "${WPPCONNECT_UPSTREAM_REPO_URL}" "${WPPCONNECT_UPSTREAM_REF}")"
+  if [ -z "${RESOLVED_SHA}" ]; then
+    log_error "Failed to resolve upstream ref '${WPPCONNECT_UPSTREAM_REF}' in ${WPPCONNECT_UPSTREAM_REPO_URL}"
+    exit 1
+  fi
+  SHORT_SHA="${RESOLVED_SHA:0:12}"
+  IMAGE_URI_SHA="${IMAGE_BASE}:git-${SHORT_SHA}"
+
+  log_info "Preparing custom WPPConnect image..."
+  log_info "Upstream: ${WPPCONNECT_UPSTREAM_REPO_URL}@${RESOLVED_SHA}"
+  log_info "Image:    ${IMAGE_URI_SHA}"
+  IMAGE_VERSION="$(lookup_image_version_by_tag "${IMAGE_BASE}" "git-${SHORT_SHA}")"
+
+  if [ -n "${IMAGE_VERSION}" ] && ! is_true "${FORCE_WPPCONNECT_REBUILD}" && [ "${WPPCONNECT_DEPLOY_MODE}" != "rebuild" ]; then
+    log_info "Reusing existing WPPConnect image for git-${SHORT_SHA}."
+  else
+    TMP_CLOUDBUILD="$(mktemp)"
+    cat > "${TMP_CLOUDBUILD}" << 'EOF'
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
@@ -117,21 +140,22 @@ images:
   - ${_IMAGE_URI}
 EOF
 
-  gcloud builds submit "${REPO_ROOT}/wppconnect" \
-    --project "${PROJECT_ID}" \
-    --config "${TMP_CLOUDBUILD}" \
-    --substitutions "_IMAGE_URI=${IMAGE_URI_SHA},_WPPCONNECT_REF=${RESOLVED_SHA}"
+    gcloud builds submit "${REPO_ROOT}/wppconnect" \
+      --project "${PROJECT_ID}" \
+      --config "${TMP_CLOUDBUILD}" \
+      --substitutions "_IMAGE_URI=${IMAGE_URI_SHA},_WPPCONNECT_REF=${RESOLVED_SHA}"
 
-  rm -f "${TMP_CLOUDBUILD}"
-  IMAGE_VERSION="$(lookup_image_version_by_tag "${IMAGE_BASE}" "git-${SHORT_SHA}")"
+    rm -f "${TMP_CLOUDBUILD}"
+    IMAGE_VERSION="$(lookup_image_version_by_tag "${IMAGE_BASE}" "git-${SHORT_SHA}")"
+  fi
+
+  log_info "Tagging image for release and latest..."
+  gcloud artifacts docker tags add "${IMAGE_URI_SHA}" "${IMAGE_URI_DATE}" --quiet
+  gcloud artifacts docker tags add "${IMAGE_URI_SHA}" "${IMAGE_URI_LATEST}" --quiet
 fi
 
-log_info "Tagging image for release and latest..."
-gcloud artifacts docker tags add "${IMAGE_URI_SHA}" "${IMAGE_URI_DATE}" --quiet
-gcloud artifacts docker tags add "${IMAGE_URI_SHA}" "${IMAGE_URI_LATEST}" --quiet
-
 if [ -z "${IMAGE_VERSION}" ]; then
-  log_error "Could not resolve pushed image digest for ${IMAGE_URI_SHA}"
+  log_error "Could not resolve image digest for the selected WPPConnect deployment mode"
   exit 1
 fi
 
@@ -144,6 +168,7 @@ METADATA_FILE="${METADATA_DIR}/wppconnect-image-${DATE_TAG}-${SHORT_SHA}.json"
 
 cat > "${METADATA_FILE}" <<EOF
 {
+  "deployment_mode": "${WPPCONNECT_DEPLOY_MODE}",
   "upstream_repo_url": "${WPPCONNECT_UPSTREAM_REPO_URL}",
   "upstream_ref_requested": "${WPPCONNECT_UPSTREAM_REF}",
   "upstream_ref_resolved_sha": "${RESOLVED_SHA}",
@@ -183,6 +208,7 @@ else
 fi
 
 log_success "WPPConnect custom image deployment complete"
+echo "  Deploy mode:   ${WPPCONNECT_DEPLOY_MODE}"
 echo "  Requested ref: ${WPPCONNECT_UPSTREAM_REF}"
 echo "  Resolved SHA:  ${RESOLVED_SHA}"
 echo "  Image:         ${IMAGE_URI_IMMUTABLE}"
