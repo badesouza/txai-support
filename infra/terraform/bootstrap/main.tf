@@ -78,3 +78,11 @@ resource "google_project_iam_member" "tf_admin_roles" {
   role    = each.value
   member  = "serviceAccount:${google_service_account.tf_admin.email}"
 }
+
+resource "google_project_iam_member" "tf_admin_dns_host_project_role" {
+  count = var.dns_project_id != "" && var.dns_project_id != var.project_id ? 1 : 0
+
+  project = var.dns_project_id
+  role    = "roles/dns.admin"
+  member  = "serviceAccount:${google_service_account.tf_admin.email}"
+}
