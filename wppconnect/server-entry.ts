@@ -60,4 +60,6 @@ if (process.env.HOST) {
   mergedConfig.host = process.env.HOST;
 }
 
+console.log(`[TXAI-Support] WPPConnect server-entry boot | port=${mergedConfig.port ?? 'default'} ts=${new Date().toISOString()}`);
+
 initServer(mergedConfig as unknown as ServerOptions);

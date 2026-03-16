@@ -70,6 +70,8 @@ app.use(errorHandler);
 
 // 6) Initialize Firebase and start server
 async function startServer() {
+  console.log(`[TXAI-Support] Backend starting | port=${port} env=${process.env.NODE_ENV ?? 'undefined'} whatsapp=${whatsappEnabled} ts=${new Date().toISOString()}`);
+
   try {
     // Initialize Firebase
     initializeFirebase();

@@ -5,6 +5,8 @@ import App from './App';
 import 'antd/dist/reset.css';
 import reportWebVitals from './reportWebVitals';
 
+console.log(`[TXAI-Support] Frontend boot | ts=${new Date().toISOString()}`);
+
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );
