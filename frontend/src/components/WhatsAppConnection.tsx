@@ -89,7 +89,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
     } finally {
       inFlightQrRef.current = false;
     }
-  }, [getApiPath]);
+  }, [getApiPath, session]);
 
   // Check status - retorna um objeto com resultado para uso pelos chamadores
   const checkStatus = useCallback(async (): Promise<{ connected: boolean; phone: string | null } | null> => {
@@ -130,7 +130,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
       inFlightStatusRef.current = false;
       if (mountedRef.current) setCheckingStatus(false);
     }
-  }, [getApiPath, requestQrCode, stopPolling]);
+  }, [getApiPath, requestQrCode, stopPolling, session]);
 
   // Start polling with 10 second interval
   const startPolling = useCallback(() => {
@@ -141,7 +141,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
       // Não aguardamos aqui; checkStatus já protege concorrência
       void checkStatus();
     }, 10000); // 10 segundos
-  }, [checkStatus, stopPolling]);
+  }, [checkStatus, stopPolling, session]);
 
   const disconnectWhatsApp = async () => {
     setLoading(true);
