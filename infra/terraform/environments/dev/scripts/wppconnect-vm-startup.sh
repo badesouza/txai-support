@@ -30,6 +30,44 @@ SESSION_NAME="${SESSION_NAME:-txai-whatsapp}"
 WPPCONNECT_IMAGE="${WPPCONNECT_IMAGE:-wppconnect/server-cli:latest}"
 WPPCONNECT_FQDN="${WPPCONNECT_FQDN:-}"
 
+require_single_line() {
+  local key="$1"
+  local value="$2"
+
+  if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
+    echo "ERROR: ${key} must be a single line"
+    exit 1
+  fi
+}
+
+validate_session_name() {
+  local value="$1"
+  # Keep this strict because SESSION_NAME is used in filesystem paths.
+  if [[ ! "${value}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "ERROR: Invalid SESSION_NAME '${value}' (allowed: A-Za-z0-9._-)"
+    exit 1
+  fi
+}
+
+require_single_line "SECRET_KEY" "${SECRET_KEY}"
+require_single_line "SESSION_NAME" "${SESSION_NAME}"
+require_single_line "WEBHOOK_URL" "${WEBHOOK_URL}"
+require_single_line "WEBHOOK_TOKEN" "${WEBHOOK_TOKEN}"
+require_single_line "WPPCONNECT_IMAGE" "${WPPCONNECT_IMAGE}"
+require_single_line "WPPCONNECT_FQDN" "${WPPCONNECT_FQDN}"
+
+validate_session_name "${SESSION_NAME}"
+
+if [[ "${WPPCONNECT_IMAGE}" =~ [[:space:]] ]]; then
+  echo "ERROR: WPPCONNECT_IMAGE cannot contain whitespace"
+  exit 1
+fi
+
+if [ -n "${WPPCONNECT_FQDN}" ] && [[ ! "${WPPCONNECT_FQDN}" =~ ^[A-Za-z0-9.-]+$ ]]; then
+  echo "ERROR: Invalid WPPCONNECT_FQDN '${WPPCONNECT_FQDN}'"
+  exit 1
+fi
+
 DATA_DIR="/mnt/wppconnect-data"
 STACK_DIR="/opt/wppconnect"
 
@@ -101,6 +139,12 @@ if ! command -v docker >/dev/null 2>&1; then
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin jq
   systemctl enable docker
   systemctl start docker
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Installing jq..."
+  apt-get update
+  apt-get install -y jq
 fi
 
 # Login to Artifact Registry if image is hosted there.
@@ -198,10 +242,21 @@ EOF
 
 cd "${STACK_DIR}"
 # Let the backend own session startup so we do not race Chromium on boot.
-rm -f "${USER_DATA_DIR}/${SESSION_NAME}/SingletonLock" \
-      "${USER_DATA_DIR}/${SESSION_NAME}/SingletonCookie" \
-      "${USER_DATA_DIR}/${SESSION_NAME}/SingletonSocket" \
-      "${USER_DATA_DIR}/${SESSION_NAME}/DevToolsActivePort"
+SESSION_DIR="${USER_DATA_DIR}/${SESSION_NAME}"
+SESSION_DIR_REAL="$(readlink -m "${SESSION_DIR}")"
+USER_DATA_DIR_REAL="$(readlink -m "${USER_DATA_DIR}")"
+case "${SESSION_DIR_REAL}" in
+  "${USER_DATA_DIR_REAL}"/*) ;;
+  *)
+    echo "ERROR: SESSION_NAME resolved outside USER_DATA_DIR: ${SESSION_DIR_REAL}"
+    exit 1
+    ;;
+esac
+
+rm -f "${SESSION_DIR_REAL}/SingletonLock" \
+      "${SESSION_DIR_REAL}/SingletonCookie" \
+      "${SESSION_DIR_REAL}/SingletonSocket" \
+      "${SESSION_DIR_REAL}/DevToolsActivePort"
 docker compose up -d --remove-orphans
 
 cat > /etc/systemd/system/wppconnect-stack.service <<EOF
