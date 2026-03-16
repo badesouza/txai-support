@@ -119,6 +119,16 @@ resource "google_service_account_iam_member" "runtime_whatsapp_tf_admin_user" {
   member             = "serviceAccount:tf-admin@${var.project_id}.iam.gserviceaccount.com"
 }
 
+data "google_compute_default_service_account" "default" {
+  project = var.project_id
+}
+
+resource "google_service_account_iam_member" "default_compute_tf_admin_user" {
+  service_account_id = data.google_compute_default_service_account.default.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:tf-admin@${var.project_id}.iam.gserviceaccount.com"
+}
+
 locals {
   wppconnect_fqdn = "${var.wpp_subdomain}.${var.domain_name}"
   backend_fqdn    = "${var.backend_subdomain}.${var.domain_name}"

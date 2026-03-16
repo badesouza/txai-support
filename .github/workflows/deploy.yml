@@ -504,11 +504,14 @@ jobs:
         env:
           REACT_APP_API_URL: ${{ steps.backend-url.outputs.url }}/api
 
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
       - name: Deploy Firestore Indexes
-        run: npx firebase deploy --only firestore:indexes --project "${{ secrets.GCP_PROJECT_ID }}" --token "${{ secrets.FIREBASE_TOKEN }}"
+        run: firebase deploy --only firestore:indexes --project "${{ secrets.GCP_PROJECT_ID }}" --token "${{ secrets.FIREBASE_TOKEN }}"
 
       - name: Deploy to Firebase Hosting
-        run: npx firebase deploy --only hosting --project "${{ secrets.GCP_PROJECT_ID }}" --token "${{ secrets.FIREBASE_TOKEN }}"
+        run: firebase deploy --only hosting --project "${{ secrets.GCP_PROJECT_ID }}" --token "${{ secrets.FIREBASE_TOKEN }}"
 
       - name: Record duration
         if: always()
