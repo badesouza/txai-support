@@ -315,12 +315,10 @@ jobs:
   deploy-backend:
     name: Deploy Backend
     needs: [determine-deployment, deploy-infra, deploy-wppconnect]
-    # Run even if deploy-infra was skipped
     if: |
       always() && 
       contains(fromJSON('["all", "backend", "infra-backend", "backend-frontend"]'), needs.determine-deployment.outputs.components) &&
-      (needs.deploy-infra.result == 'success' || needs.deploy-infra.result == 'skipped') &&
-      (needs.deploy-wppconnect.result == 'success' || needs.deploy-wppconnect.result == 'skipped')
+      (needs.deploy-infra.result == 'success' || needs.deploy-infra.result == 'skipped')
     runs-on: ubuntu-latest
     environment: ${{ needs.determine-deployment.outputs.environment }}
     outputs:

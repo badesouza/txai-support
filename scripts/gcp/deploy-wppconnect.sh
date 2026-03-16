@@ -143,7 +143,8 @@ EOF
     gcloud builds submit "${REPO_ROOT}/wppconnect" \
       --project "${PROJECT_ID}" \
       --config "${TMP_CLOUDBUILD}" \
-      --substitutions "_IMAGE_URI=${IMAGE_URI_SHA},_WPPCONNECT_REF=${RESOLVED_SHA}"
+      --substitutions "_IMAGE_URI=${IMAGE_URI_SHA},_WPPCONNECT_REF=${RESOLVED_SHA}" \
+      --suppress-logs
 
     rm -f "${TMP_CLOUDBUILD}"
     IMAGE_VERSION="$(lookup_image_version_by_tag "${IMAGE_BASE}" "git-${SHORT_SHA}")"
