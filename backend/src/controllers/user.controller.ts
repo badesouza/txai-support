@@ -63,7 +63,7 @@ export class UserController {
 
             const hashedPassword = await bcrypt.hash(userData.password, 10);
 
-            const normalizedPhone = this.normalizePhoneOrReject(userData.phone, res);
+            const normalizedPhone = UserController.normalizePhoneOrReject(userData.phone, res);
             if (!normalizedPhone) {
                 return;
             }
@@ -84,7 +84,7 @@ export class UserController {
             );
 
             res.status(201).json({
-                user: this.serializeUser(user),
+                user: UserController.serializeUser(user),
                 token
             });
         } catch (error) {
@@ -128,7 +128,7 @@ export class UserController {
             );
 
             res.json({
-                user: this.serializeUser(user),
+                user: UserController.serializeUser(user),
                 token
             });
         } catch (error) {
@@ -156,7 +156,7 @@ export class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            res.json(this.serializeUser(user));
+            res.json(UserController.serializeUser(user));
         } catch (error) {
             res.status(500).json({ message: 'Error fetching profile' });
         }
@@ -174,7 +174,7 @@ export class UserController {
             
             // Validate and normalize phone if updating
             if (updateData.phone) {
-                const normalizedPhone = this.normalizePhoneOrReject(updateData.phone, res);
+                const normalizedPhone = UserController.normalizePhoneOrReject(updateData.phone, res);
                 if (!normalizedPhone) {
                     return;
                 }
@@ -187,7 +187,7 @@ export class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            res.json(this.serializeUser(updatedUser));
+            res.json(UserController.serializeUser(updatedUser));
         } catch (error) {
             res.status(500).json({ message: 'Error updating profile' });
         }
@@ -239,7 +239,7 @@ export class UserController {
 
             // Validate and normalize phone if present
             if (updateData.phone) {
-                const normalizedPhone = this.normalizePhoneOrReject(updateData.phone, res);
+                const normalizedPhone = UserController.normalizePhoneOrReject(updateData.phone, res);
                 if (!normalizedPhone) {
                     return;
                 }
@@ -270,7 +270,7 @@ export class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            res.json(this.serializeUser(updatedUser));
+            res.json(UserController.serializeUser(updatedUser));
         } catch (error: any) {
             logger.error('Unexpected error updating user by id', {
                 userId: req.params.id,
@@ -313,7 +313,7 @@ export class UserController {
 
             // Format phones for display
             const formattedUsers = filteredUsers.map(user => ({
-                ...this.serializeUser(user),
+                ...UserController.serializeUser(user),
                 createdAt: user.createdAt,
                 updatedAt: user.updatedAt
             }));
@@ -367,7 +367,7 @@ export class UserController {
             const hashedPassword = await bcrypt.hash(userData.password, 10);
 
             // Validate and normalize phone (E.164 format for WhatsApp)
-            const normalizedPhone = this.normalizePhoneOrReject(userData.phone, res);
+            const normalizedPhone = UserController.normalizePhoneOrReject(userData.phone, res);
             if (!normalizedPhone) {
                 return;
             }
@@ -386,7 +386,7 @@ export class UserController {
             });
 
             res.status(201).json({
-                ...this.serializeUser(user)
+                ...UserController.serializeUser(user)
             });
         } catch (error) {
             logger.error('Unexpected error creating user', {
@@ -413,7 +413,7 @@ export class UserController {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            res.json(this.serializeUser(user));
+            res.json(UserController.serializeUser(user));
         } catch (error) {
             logger.error('Unexpected error fetching user by id', {
                 userId: req.params.id,

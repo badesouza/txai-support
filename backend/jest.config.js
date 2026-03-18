@@ -28,6 +28,18 @@ module.exports = {
       functions: 0,
       lines: 0,
       statements: 0
+    },
+    './src/controllers/user.controller.ts': {
+      branches: 5,
+      functions: 30,
+      lines: 20,
+      statements: 20
+    },
+    './src/routes/user.routes.ts': {
+      branches: 100,
+      functions: 100,
+      lines: 100,
+      statements: 100
     }
   },
 
