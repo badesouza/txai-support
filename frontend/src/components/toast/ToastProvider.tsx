@@ -23,7 +23,7 @@ export default function ToastProvider({ children }: ToastProviderProps) {
   useEffect(() => {
     registerToastDispatcher((input: SuccessToastInput) => {
       const options = typeof input === 'string' ? { text: input } : input;
-      const id = crypto.randomUUID();
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const item: ToastItem = {
         id,
         title: options.title ?? 'Sucesso!',
