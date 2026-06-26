@@ -10,7 +10,7 @@ const generateFilename = (originalName: string) => {
   return `images-${uniqueSuffix}${ext}`;
 };
 
-// Use memory storage - files go directly to GCS, no local filesystem needed
+// Use memory storage - files are persisted via the storage layer (local disk)
 const multerStorage = multer.memoryStorage();
 
 // Configurar o filtro de arquivos
@@ -34,18 +34,18 @@ export const upload = multer({
 }).array('images', 10); // Usar array ao invés de fields
 
 // Middleware para processar os arquivos após o upload
-// All files are uploaded to GCS - no local filesystem storage
+// All files are persisted via the storage layer (local disk)
 export const processUploadedFiles = async (req: Request, res: Response, next: NextFunction) => {
   if (!req.files || !Array.isArray(req.files)) {
     return next();
   }
 
   try {
-    // Upload all files to GCS
+    // Persist all files via the storage layer
     await Promise.all(
       req.files.map(async (file: Express.Multer.File) => {
         if (!file.buffer) {
-          throw new Error('File buffer not found for GCS upload');
+          throw new Error('File buffer not found for upload');
         }
         
         const filename = generateFilename(file.originalname);
@@ -62,7 +62,7 @@ export const processUploadedFiles = async (req: Request, res: Response, next: Ne
     
     next();
   } catch (error) {
-    console.error('Error uploading file to GCS:', error);
+    console.error('Error saving uploaded file:', error);
     next(error);
   }
 };

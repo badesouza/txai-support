@@ -1,5 +1,5 @@
 /**
- * Unit Tests - Storage Module
+ * Unit Tests - Storage Module (local disk)
  */
 
 describe('🧪 Storage Module', () => {
@@ -14,67 +14,23 @@ describe('🧪 Storage Module', () => {
     process.env = originalEnv;
   });
 
-  describe('Environment Detection', () => {
-    it('should detect emulator when STORAGE_EMULATOR_HOST is set', () => {
-      process.env.STORAGE_EMULATOR_HOST = 'http://localhost:4443';
-      process.env.STORAGE_DRIVER = 'gcs';
-
-      const isEmulator = !!process.env.STORAGE_EMULATOR_HOST;
-
-      expect(isEmulator).toBe(true);
-    });
-
-    it('should detect production when STORAGE_EMULATOR_HOST is not set', () => {
-      delete process.env.STORAGE_EMULATOR_HOST;
-      process.env.STORAGE_DRIVER = 'gcs';
-
-      const isEmulator = !!process.env.STORAGE_EMULATOR_HOST;
-
-      expect(isEmulator).toBe(false);
-    });
-  });
-
   describe('Configuration', () => {
-    it('should use GCS bucket from environment', () => {
-      process.env.GCS_BUCKET = 'test-bucket';
-
-      const bucket = process.env.GCS_BUCKET;
-
-      expect(bucket).toBe('test-bucket');
-    });
-
-    it('should use GCS project ID from environment', () => {
-      process.env.GCS_PROJECT_ID = 'test-project';
-
-      const projectId = process.env.GCS_PROJECT_ID;
-
-      expect(projectId).toBe('test-project');
+    it('should use local storage driver', () => {
+      process.env.STORAGE_DRIVER = 'local';
+      expect(process.env.STORAGE_DRIVER).toBe('local');
     });
 
     it('should have uploads prefix', () => {
-      process.env.GCS_UPLOADS_PREFIX = 'uploads';
-
-      const prefix = process.env.GCS_UPLOADS_PREFIX;
-
-      expect(prefix).toBe('uploads');
-    });
-  });
-
-  describe('Storage Driver Selection', () => {
-    it('should default to gcs driver', () => {
-      process.env.STORAGE_DRIVER = 'gcs';
-
-      const driver = process.env.STORAGE_DRIVER;
-
-      expect(driver).toBe('gcs');
+      process.env.UPLOADS_PREFIX = 'uploads';
+      expect(process.env.UPLOADS_PREFIX).toBe('uploads');
     });
 
-    it('should support local driver', () => {
-      process.env.STORAGE_DRIVER = 'local';
-
-      const driver = process.env.STORAGE_DRIVER;
-
-      expect(driver).toBe('local');
+    it('should build a public file URL from PUBLIC_BASE_URL', () => {
+      const base = 'http://localhost:3001';
+      const prefix = 'uploads';
+      const filename = 'images-123.png';
+      const url = `${base}/${prefix}/${filename}`;
+      expect(url).toBe('http://localhost:3001/uploads/images-123.png');
     });
   });
 
@@ -115,5 +71,3 @@ describe('🧪 Storage Module', () => {
     });
   });
 });
-
-

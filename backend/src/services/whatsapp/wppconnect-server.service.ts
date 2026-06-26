@@ -118,12 +118,9 @@ export class WPPConnectServerService {
 
     try {
       await this.ensureToken();
-      // Don't restart sessions on every initialize call.
-      // If already connected or a QR is already available, we just return.
       const { isConnected, qrCode } = await this.getConnectionStatus();
       if (isConnected || qrCode) return;
 
-      // Debounce start attempts to avoid generating a new QR code on rapid polling/refresh.
       const now = Date.now();
       if (now - this.lastStartAttemptAt < this.START_DEBOUNCE_MS) return;
       this.lastStartAttemptAt = now;
@@ -167,6 +164,11 @@ export class WPPConnectServerService {
       if (status.toUpperCase() === 'QRCODE' && qr) {
         return { isConnected: false, hasQRCode: true, qrCode: normalizeDataUrl(qr) };
       }
+
+      // Session closed on server — needs a fresh start-session call
+      if (status.toUpperCase() === 'CLOSED') {
+        return { isConnected: false, hasQRCode: false };
+      }
     }
 
     return { isConnected: false, hasQRCode: true };
@@ -178,10 +180,13 @@ export class WPPConnectServerService {
     if (status.isConnected) return null;
     if (status.qrCode) return status.qrCode;
 
-    // Ensure session is started so QR can be generated (debounced inside initialize).
     await this.initialize();
 
-    // Some server versions return JSON with base64; others return the PNG bytes directly.
+    // Re-check status after initialize — start-session may return QR inline
+    const afterInit = await this.getConnectionStatus();
+    if (afterInit.isConnected) return null;
+    if (afterInit.qrCode) return afterInit.qrCode;
+
     const bytes = await this.requestBytes(`/api/${encodeURIComponent(this.session)}/qrcode-session`, {
       method: 'GET',
       auth: true,
@@ -416,15 +421,13 @@ export class WPPConnectServerService {
 
     const normalizedBaseUrl = publicBaseUrl.replace(/\/$/, '');
 
-    // In Cloud Run we must provide a publicly reachable webhook URL.
-    // Without this, WPPConnect-Server will send events to the wrong place.
     if (process.env.K_SERVICE && !normalizedBaseUrl) {
-      throw new Error('PUBLIC_BASE_URL is required in Cloud Run when using WHATSAPP_DRIVER=server');
+      throw new Error('PUBLIC_BASE_URL is required when using WHATSAPP_DRIVER=server');
     }
 
-    const webhookUrl = `${(normalizedBaseUrl || 'http://localhost:3001')}/api/whatsapp/webhook?token=${encodeURIComponent(this.webhookSecret)}`;
+    const webhookUrl = `${(normalizedBaseUrl || 'http://host.docker.internal:3001')}/api/whatsapp/webhook?token=${encodeURIComponent(this.webhookSecret)}`;
 
-    await this.requestJson(`/api/${encodeURIComponent(this.session)}/start-session`, {
+    const payload = await this.requestJson(`/api/${encodeURIComponent(this.session)}/start-session`, {
       method: 'POST',
       auth: true,
       body: {
@@ -432,6 +435,19 @@ export class WPPConnectServerService {
         waitQrCode: true,
       },
     });
+
+    // Some versions return QR directly from start-session
+    if (isRecord(payload)) {
+      const inlineQr =
+        typeof payload['qrcode'] === 'string'
+          ? payload['qrcode']
+          : typeof payload['qrCode'] === 'string'
+            ? payload['qrCode']
+            : isRecord(payload['response']) && typeof payload['response']['qrcode'] === 'string'
+              ? (payload['response']['qrcode'] as string)
+              : null;
+      if (inlineQr) return;
+    }
   }
 
   private async getMediaByMessageId(messageId: string): Promise<{ base64?: string; mimetype?: string } | null> {

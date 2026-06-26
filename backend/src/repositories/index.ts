@@ -8,3 +8,5 @@ export { UserTokenRepository } from './user-token.repository';
 export { CallMessageRepository } from './call-message.repository';
 export { CallAttachmentRepository } from './call-attachment.repository';
 export { CallHistoryRepository } from './call-history.repository';
+export { ChamadoLocalRepository } from './chamado-local.repository';
+export { DepartamentoRepository } from './departamento.repository';

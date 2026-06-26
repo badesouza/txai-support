@@ -39,6 +39,7 @@ COPY --from=deps /app/node_modules ./node_modules
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/db/schema.sql ./dist/db/schema.sql
 COPY --from=builder /app/package*.json ./
 
 # Copy startup script

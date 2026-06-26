@@ -1,6 +1,6 @@
 /**
  * E2E Tests - File Upload
- * Tests file upload functionality with GCS/emulator
+ * Tests file upload functionality with local disk storage
  */
 
 import { ApiClient } from '../utils/api-client';
@@ -136,16 +136,9 @@ describe('🌐 E2E - File Upload', () => {
 });
 
 describe('🌐 E2E - Storage Service', () => {
-  it('should have storage service configured', () => {
-    const storageDriver = process.env.STORAGE_DRIVER;
-    const emulatorHost = process.env.STORAGE_EMULATOR_HOST;
-    const bucket = process.env.GCS_BUCKET;
-
-    console.log(`    Storage Driver: ${storageDriver || 'default'}`);
-    console.log(`    Emulator Host: ${emulatorHost || 'none (production)'}`);
-    console.log(`    Bucket: ${bucket || 'not configured'}`);
-
-    // At minimum, bucket should be configured in test env
-    expect(bucket || emulatorHost || storageDriver).toBeDefined();
+  it('should have local disk storage configured', () => {
+    const storageDriver = process.env.STORAGE_DRIVER || 'local';
+    console.log(`    Storage Driver: ${storageDriver}`);
+    expect(storageDriver).toBe('local');
   });
 });

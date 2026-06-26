@@ -1,109 +1,130 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { LoginOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import api from '../config/axios';
 import { API_CONFIG } from '../config/api';
-import Swal from 'sweetalert2';
+import { LoginModulesPanel } from '../components/LoginModulesPanel';
 
+/** Login page with form panel and system modules overview. */
 const Login = () => {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [rememberMe, setRememberMe] = useState(false);
-    const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const navigate = useNavigate();
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        try {
-            const response = await api.post(API_CONFIG.ENDPOINTS.LOGIN, {
-                email,
-                password
-            });
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
 
-            // Salvar token no localStorage
-            localStorage.setItem('token', response.data.token);
-            localStorage.setItem('user', JSON.stringify(response.data.user));
+    try {
+      const response = await api.post(API_CONFIG.ENDPOINTS.LOGIN, { email, password });
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+      navigate('/home');
+    } catch (err) {
+      console.error('Erro no login:', err);
+      setError('Erro ao fazer login. Verifique suas credenciais.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-            // Redirecionar para home
-            navigate('/home');
-        } catch (error) {
-            console.error('Erro no login:', error);
-            Swal.fire({
-                title: 'Erro!',
-                text: 'Erro ao fazer login. Verifique suas credenciais.',
-                icon: 'error',
-                confirmButtonText: 'OK'
-            });
-        }
-    };
+  return (
+    <div className="flex min-h-screen flex-col bg-[#0a0a0a] lg:flex-row">
+      <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-10 lg:max-w-[480px] xl:max-w-[540px] lg:px-14 lg:py-16">
+        <div className="mb-10 flex items-center gap-3">
+          <div className="rounded-lg bg-primary-600 p-2.5">
+            <LoginOutlined className="text-xl text-white" />
+          </div>
+          <span className="text-2xl font-bold tracking-tight text-white">TXAI Suporte</span>
+        </div>
 
-    return (
-        <section className="min-h-screen bg-gray-50 dark:bg-gray-900">
-            <div className="flex flex-col items-center justify-center px-6 py-8 mx-auto min-h-screen">
-                <div className="flex items-center mb-6 text-2xl font-semibold text-gray-900 dark:text-white">
-                    <img className="w-8 h-8 mr-2" src="/logo.svg" alt="TXAI Support Logo" />
-                    TXAI Support
-                </div>
-                <div className="w-full bg-white rounded-lg shadow dark:border md:mt-0 sm:max-w-md xl:p-0 dark:bg-gray-800 dark:border-gray-700">
-                    <div className="p-6 space-y-4 md:space-y-6 sm:p-8">
-                        <h1 className="text-xl font-bold leading-tight tracking-tight text-gray-900 md:text-2xl dark:text-white">
-                            Acesse sua conta
-                        </h1>
-                        <form className="space-y-4 md:space-y-6" onSubmit={handleSubmit}>
-                            <div>
-                                <label htmlFor="email" className="block mb-2 text-sm font-medium text-gray-900 dark:text-white">E-mail</label>
-                                <input
-                                    type="email"
-                                    name="email"
-                                    id="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="bg-gray-50 border border-gray-300 text-gray-900 rounded-lg focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="password" className="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Senha</label>
-                                <input
-                                    type="password"
-                                    name="password"
-                                    id="password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="bg-gray-50 border border-gray-300 text-gray-900 rounded-lg focus:ring-primary-600 focus:border-primary-600 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
-                                    required
-                                />
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-start">
-                                    <div className="flex items-center h-5">
-                                        <input
-                                            id="remember"
-                                            type="checkbox"
-                                            checked={rememberMe}
-                                            onChange={(e) => setRememberMe(e.target.checked)}
-                                            className="w-4 h-4 border border-gray-300 rounded bg-gray-50 focus:ring-3 focus:ring-primary-300 dark:bg-gray-700 dark:border-gray-600 dark:focus:ring-primary-600 dark:ring-offset-gray-800"
-                                        />
-                                    </div>
-                                    <div className="ml-3 text-sm">
-                                        <label htmlFor="remember" className="text-gray-500 dark:text-gray-300">Lembrar-me</label>
-                                    </div>
-                                </div>
-                                <button type="button" className="text-sm font-medium text-primary-600 hover:underline dark:text-primary-500 bg-transparent border-none cursor-pointer p-0">Esqueceu a senha?</button>
-                            </div>
-                            <button
-                                type="submit"
-                                className="w-full text-white bg-primary-600 hover:bg-primary-700 focus:ring-4 focus:outline-none focus:ring-primary-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-primary-600 dark:hover:bg-primary-700 dark:focus:ring-primary-800"
-                            >
-                                Acessar
-                            </button>
-                            <p className="text-sm font-light text-gray-500 dark:text-gray-400">
-                                Precisa de ajuda? <a href="https://wa.me/5573981112636" className="font-medium text-primary-600 hover:underline dark:text-primary-500">(73) 98111-2636</a>
-                            </p>
-                        </form>
-                    </div>
-                </div>
+        <h1 className="mb-2 text-3xl font-bold text-white">Bem-vindo</h1>
+        <p className="mb-8 text-gray-400">
+          Plataforma de suporte e governança para hotelaria de luxo
+        </p>
+
+        {error ? (
+          <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+            {error}
+          </div>
+        ) : null}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-300">
+              E-mail
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              placeholder="seu@email.com"
+              className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-4 py-3 text-white placeholder-gray-500 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-300">
+              Senha
+            </label>
+            <div className="relative">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="••••••••"
+                className="w-full rounded-lg border border-gray-700 bg-gray-900/80 px-4 py-3 pr-12 text-white placeholder-gray-500 transition-all focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-300 focus:outline-none"
+                aria-label={showPassword ? 'Esconder senha' : 'Mostrar senha'}
+              >
+                {showPassword ? (
+                  <EyeInvisibleOutlined className="text-lg" />
+                ) : (
+                  <EyeOutlined className="text-lg" />
+                )}
+              </button>
             </div>
-        </section>
-    );
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-lg bg-primary-600 py-3 font-semibold text-white shadow-lg shadow-primary-600/20 transition-all duration-200 hover:bg-primary-700 hover:shadow-primary-600/40 disabled:cursor-not-allowed disabled:bg-primary-600/50"
+          >
+            {loading ? 'Entrando...' : 'Entrar'}
+          </button>
+
+          <p className="text-center text-sm text-gray-500">
+            Precisa de ajuda?{' '}
+            <a
+              href="https://wa.me/5573981112636"
+              className="font-medium text-primary-400 hover:text-primary-300"
+              target="_blank"
+              rel="noreferrer"
+            >
+              (73) 98111-2636
+            </a>
+          </p>
+        </form>
+      </div>
+
+      <div className="flex-1 border-t border-white/[0.06] lg:border-l lg:border-t-0">
+        <LoginModulesPanel />
+      </div>
+    </div>
+  );
 };
 
-export default Login; 
+export default Login;

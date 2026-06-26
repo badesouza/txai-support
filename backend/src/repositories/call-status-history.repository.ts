@@ -1,19 +1,23 @@
-import { getFirestore, Collections } from '../lib/firebase';
+import { getPool } from '../lib/db';
+import { toDate } from '../lib/sql-helpers';
 import { CallStatusHistory, CallStatusHistoryCreateInput } from '../types/models';
 import { v4 as uuidv4 } from 'uuid';
 
-const db = getFirestore();
-const collection = db.collection(Collections.CALL_STATUS_HISTORY);
-
 export class CallStatusHistoryRepository {
   /**
-   * Create a new status history entry
+   * Create a new status history entry.
    */
   static async create(data: CallStatusHistoryCreateInput): Promise<CallStatusHistory> {
     const id = uuidv4();
     const now = new Date();
-    
-    const history: CallStatusHistory = {
+
+    await getPool().query(
+      `INSERT INTO call_status_history (id, call_id, old_status, new_status, user_id, user_name, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, data.callId, data.oldStatus, data.newStatus, data.userId, data.userName ?? null, now]
+    );
+
+    return {
       id,
       callId: data.callId,
       oldStatus: data.oldStatus,
@@ -22,66 +26,47 @@ export class CallStatusHistoryRepository {
       userName: data.userName,
       createdAt: now,
     };
-
-    await collection.doc(id).set(history);
-    
-    return history;
   }
 
   /**
-   * Find history by call ID
+   * Find history by call ID.
    */
   static async findByCallId(callId: string): Promise<CallStatusHistory[]> {
-    const snapshot = await collection
-      .where('callId', '==', callId)
-      .orderBy('createdAt', 'desc')
-      .get();
-    
-    return snapshot.docs.map(doc => this.docToHistory(doc));
+    const result = await getPool().query(
+      'SELECT * FROM call_status_history WHERE call_id = $1 ORDER BY created_at DESC',
+      [callId]
+    );
+    return result.rows.map((row) => this.rowToHistory(row));
   }
 
   /**
-   * Find history by user ID
+   * Find history by user ID.
    */
   static async findByUserId(userId: string, limit = 100): Promise<CallStatusHistory[]> {
-    const snapshot = await collection
-      .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
-    
-    return snapshot.docs.map(doc => this.docToHistory(doc));
+    const result = await getPool().query(
+      'SELECT * FROM call_status_history WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
+      [userId, limit]
+    );
+    return result.rows.map((row) => this.rowToHistory(row));
   }
 
   /**
-   * Delete all history for a call
+   * Delete all history for a call.
    */
   static async deleteByCallId(callId: string): Promise<number> {
-    const snapshot = await collection
-      .where('callId', '==', callId)
-      .get();
-    
-    const batch = db.batch();
-    snapshot.docs.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
-    
-    return snapshot.size;
+    const result = await getPool().query('DELETE FROM call_status_history WHERE call_id = $1', [callId]);
+    return result.rowCount ?? 0;
   }
 
-  /**
-   * Convert Firestore document to CallStatusHistory
-   */
-  private static docToHistory(doc: FirebaseFirestore.DocumentSnapshot): CallStatusHistory {
-    const data = doc.data()!;
+  private static rowToHistory(row: Record<string, unknown>): CallStatusHistory {
     return {
-      id: doc.id,
-      callId: data.callId,
-      oldStatus: data.oldStatus,
-      newStatus: data.newStatus,
-      userId: data.userId,
-      userName: data.userName,
-      createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
+      id: String(row.id),
+      callId: String(row.call_id),
+      oldStatus: String(row.old_status),
+      newStatus: String(row.new_status),
+      userId: String(row.user_id),
+      userName: row.user_name ? String(row.user_name) : undefined,
+      createdAt: toDate(row.created_at),
     };
   }
 }
-

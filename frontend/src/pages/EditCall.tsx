@@ -3,6 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import api from '../config/axios';
 import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
+import { showSuccessToast } from '../utils/toast';
+import PageLayout from '../components/layout/PageLayout';
+import PageCard from '../components/layout/PageCard';
 
 interface CallAttachment {
   id: string;
@@ -14,6 +17,11 @@ interface CallAttachment {
   createdAt: string;
 }
 
+interface ReferenceOption {
+  id: string;
+  name: string;
+}
+
 export default function EditCall() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -21,12 +29,33 @@ export default function EditCall() {
     title: '',
     description: '',
     status: 'OPEN',
-    priority: 'MEDIUM'
+    priority: 'MEDIUM',
+    chamadoLocalId: '',
+    departamentoId: '',
   });
+  const [locais, setLocais] = useState<ReferenceOption[]>([]);
+  const [departamentos, setDepartamentos] = useState<ReferenceOption[]>([]);
   const [initialStatus, setInitialStatus] = useState('');
   const [attachments, setAttachments] = useState<CallAttachment[]>([]);
   const [newImages, setNewImages] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchReferenceData = async () => {
+      try {
+        const [locaisRes, departamentosRes] = await Promise.all([
+          api.get(`${API_CONFIG.ENDPOINTS.CHAMADO_LOCAIS}?limit=100`),
+          api.get(`${API_CONFIG.ENDPOINTS.DEPARTAMENTOS}?limit=100`),
+        ]);
+        setLocais(locaisRes.data?.items ?? []);
+        setDepartamentos(departamentosRes.data?.items ?? []);
+      } catch (error) {
+        console.error('Erro ao buscar locais/departamentos:', error);
+      }
+    };
+
+    fetchReferenceData();
+  }, []);
 
   useEffect(() => {
     const fetchCall = async () => {
@@ -38,7 +67,9 @@ export default function EditCall() {
           title: call.title,
           description: call.description,
           status: call.status,
-          priority: call.priority
+          priority: call.priority,
+          chamadoLocalId: call.chamadoLocalId || '',
+          departamentoId: call.departamentoId || '',
         });
         setInitialStatus(call.status);
         
@@ -96,13 +127,7 @@ export default function EditCall() {
 
       await api.delete(`/calls/${id}/attachments/${attachmentId}`);
       setAttachments(prev => prev.filter(att => att.id !== attachmentId));
-      await Swal.fire({
-        title: 'Sucesso!',
-        text: 'Anexo removido com sucesso.',
-        icon: 'success',
-        timer: 1500,
-        showConfirmButton: false
-      });
+      showSuccessToast('Anexo removido com sucesso.');
     } catch (error) {
       console.error('Erro ao remover anexo:', error);
       Swal.fire({
@@ -141,13 +166,7 @@ export default function EditCall() {
         }
       });
 
-      await Swal.fire({
-        title: 'Sucesso!',
-        text: 'Chamado atualizado com sucesso.',
-        icon: 'success',
-        timer: 1500,
-        showConfirmButton: false
-      });
+      showSuccessToast('Chamado atualizado com sucesso.');
       navigate('/calls');
     } catch (error) {
       console.error('Erro ao atualizar chamado:', error);
@@ -172,86 +191,79 @@ export default function EditCall() {
   };
 
   return (
-    <>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Editar Chamado</h1>
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
+    <PageLayout title="Editar chamado" description="Atualize os dados e anexos do chamado selecionado.">
+      <PageCard>
+        <form onSubmit={handleSubmit} className="mx-auto max-w-2xl space-y-5">
           <div>
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Título
-            </label>
-            <input
-              type="text"
-              id="title"
-              name="title"
-              value={formData.title}
-              onChange={handleChange}
-              required
-              className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            />
+            <label htmlFor="title" className="form-label">Título</label>
+            <input type="text" id="title" name="title" value={formData.title} onChange={handleChange} required className="form-input" />
           </div>
 
           <div>
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Descrição
-            </label>
-            <textarea
-              id="description"
-              name="description"
-              rows={4}
-              value={formData.description}
-              onChange={handleChange}
-              required
-              className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            />
+            <label htmlFor="description" className="form-label">Descrição</label>
+            <textarea id="description" name="description" rows={4} value={formData.description} onChange={handleChange} required className="form-textarea" />
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label htmlFor="chamadoLocalId" className="form-label">Local</label>
+              <select
+                id="chamadoLocalId"
+                name="chamadoLocalId"
+                value={formData.chamadoLocalId}
+                onChange={handleChange}
+                required
+                className="form-select"
+              >
+                <option value="">Selecione um local</option>
+                {locais.map((local) => (
+                  <option key={local.id} value={local.id}>{local.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="departamentoId" className="form-label">Departamento</label>
+              <select
+                id="departamentoId"
+                name="departamentoId"
+                value={formData.departamentoId}
+                onChange={handleChange}
+                className="form-select"
+              >
+                <option value="">Não definido</option>
+                {departamentos.map((departamento) => (
+                  <option key={departamento.id} value={departamento.id}>{departamento.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label htmlFor="status" className="form-label">Status</label>
+              <select id="status" name="status" value={formData.status} onChange={handleChange} className="form-select">
+                <option value="OPEN">Aberto</option>
+                <option value="IN_PROGRESS">Em progresso</option>
+                <option value="CLOSED">Fechado</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="priority" className="form-label">Prioridade</label>
+              <select id="priority" name="priority" value={formData.priority} onChange={handleChange} className="form-select">
+                <option value="LOW">Baixa</option>
+                <option value="MEDIUM">Média</option>
+                <option value="HIGH">Alta</option>
+              </select>
+            </div>
           </div>
 
           <div>
-            <label htmlFor="status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Status
-            </label>
-            <select
-              id="status"
-              name="status"
-              value={formData.status}
-              onChange={handleChange}
-              className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            >
-              <option value="OPEN">Aberto</option>
-              <option value="IN_PROGRESS">Em Progresso</option>
-              <option value="CLOSED">Fechado</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="priority" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Prioridade
-            </label>
-            <select
-              id="priority"
-              name="priority"
-              value={formData.priority}
-              onChange={handleChange}
-              className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            >
-              <option value="LOW">Baixa</option>
-              <option value="MEDIUM">Média</option>
-              <option value="HIGH">Alta</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Anexos
-            </label>
+            <label className="form-label">Anexos</label>
             
             {/* Attachments (from subcollection - includes WhatsApp media and uploads) */}
             {attachments.length > 0 && (
               <div className="mb-4">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <h3 className="mb-2 text-sm font-medium text-gray-300">
                   📎 Anexos existentes ({attachments.length})
                 </h3>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
@@ -284,7 +296,7 @@ export default function EditCall() {
                             />
                           </div>
                         ) : (
-                          <div className="h-24 w-24 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                          <div className="flex h-24 w-24 items-center justify-center rounded-lg bg-white/[0.05]">
                             <span className="text-xs text-gray-500 text-center px-1">{attachment.filename}</span>
                           </div>
                         )}
@@ -313,51 +325,19 @@ export default function EditCall() {
               </div>
             )}
 
-            {/* Upload de novas imagens */}
-            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-md">
-              <div className="space-y-1 text-center">
-                <svg
-                  className="mx-auto h-12 w-12 text-gray-400"
-                  stroke="currentColor"
-                  fill="none"
-                  viewBox="0 0 48 48"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <div className="flex text-sm text-gray-600 dark:text-gray-400">
-                  <label
-                    htmlFor="file-upload"
-                    className="relative cursor-pointer bg-white dark:bg-gray-800 rounded-md font-medium text-primary-600 dark:text-primary-400 hover:text-primary-500 dark:hover:text-primary-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500"
-                  >
-                    <span>Upload de imagens</span>
-                    <input
-                      id="file-upload"
-                      name="file-upload"
-                      type="file"
-                      className="sr-only"
-                      multiple
-                      accept="image/*"
-                      onChange={handleImageChange}
-                    />
-                  </label>
-                  <p className="pl-1">ou arraste e solte</p>
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  PNG, JPG, GIF até 10MB
-                </p>
-              </div>
+            <div className="rounded-lg border-2 border-dashed border-white/10 bg-white/[0.02] px-6 py-8 text-center transition-colors hover:border-primary-500/30 hover:bg-primary-500/5">
+              <label htmlFor="file-upload" className="cursor-pointer">
+                <span className="text-sm font-medium text-primary-600">Clique para enviar</span>
+                <span className="text-sm text-gray-500"> ou arraste arquivos</span>
+                <input id="file-upload" type="file" className="sr-only" multiple accept="image/*" onChange={handleImageChange} />
+              </label>
+              <p className="mt-1 text-xs text-gray-400">PNG, JPG, GIF até 10MB</p>
             </div>
 
             {/* Preview das novas imagens */}
             {newImages.length > 0 && (
               <div className="mt-4">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Novas imagens</h3>
+                <h3 className="mb-2 text-sm font-medium text-gray-300">Novas imagens</h3>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
                   {newImages.map((image, index) => (
                     <div key={index} className="relative">
@@ -382,24 +362,12 @@ export default function EditCall() {
             )}
           </div>
 
-          <div className="flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={() => navigate('/calls')}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50"
-            >
-              {loading ? 'Salvando...' : 'Salvar'}
-            </button>
+          <div className="flex justify-end gap-3 border-t border-gray-100 pt-5">
+            <button type="button" onClick={() => navigate('/calls')} className="btn-secondary">Cancelar</button>
+            <button type="submit" disabled={loading} className="btn-primary">{loading ? 'Salvando...' : 'Salvar alterações'}</button>
           </div>
         </form>
-      </div>
-    </>
+      </PageCard>
+    </PageLayout>
   );
 }

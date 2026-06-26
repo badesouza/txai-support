@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
-import { CallStatusHistoryRepository, UserRepository } from '../repositories';
+import { CallHistoryRepository, UserRepository } from '../repositories';
 
 export class CallStatusHistoryController {
+  /** Get unified call history from subcollection (status, department, local). */
   static async getCallStatusHistory(req: Request, res: Response) {
     try {
       const callId = req.params.callId;
@@ -9,9 +10,8 @@ export class CallStatusHistoryController {
         return res.status(400).json({ message: 'Invalid call ID' });
       }
 
-      const history = await CallStatusHistoryRepository.findByCallId(callId);
+      const history = await CallHistoryRepository.findByCallId(callId);
 
-      // Enrich with user data
       const enrichedHistory = await Promise.all(
         history.map(async (item) => {
           let user = null;
@@ -26,8 +26,19 @@ export class CallStatusHistoryController {
             }
           }
           return {
-            ...item,
-            user
+            id: item.id,
+            callId,
+            type: item.type,
+            oldStatus: item.oldStatus,
+            newStatus: item.newStatus,
+            oldValue: item.oldValue,
+            newValue: item.newValue,
+            field: item.field,
+            userId: item.userId,
+            userName: item.userName,
+            note: item.note,
+            createdAt: item.createdAt,
+            user,
           };
         })
       );
@@ -38,20 +49,4 @@ export class CallStatusHistoryController {
       res.status(500).json({ message: 'Error fetching call status history' });
     }
   }
-
-  static async createStatusHistory(callId: string, oldStatus: string, newStatus: string, userId: string) {
-    try {
-      const user = await UserRepository.findById(userId);
-      return await CallStatusHistoryRepository.create({
-        callId,
-        oldStatus,
-        newStatus,
-        userId,
-        userName: user?.name
-      });
-    } catch (error) {
-      console.error('Error creating status history:', error);
-      throw error;
-    }
-  }
-} 
+}

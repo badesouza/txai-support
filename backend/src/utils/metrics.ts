@@ -119,10 +119,10 @@ export const apiErrorsCounter = meter.createCounter('api.errors', {
 // =============================================================================
 
 /**
- * Counter: Files uploaded to GCS
+ * Counter: Files uploaded
  */
 export const filesUploadedCounter = meter.createCounter('storage.files.uploaded', {
-  description: 'Total files uploaded to Cloud Storage',
+  description: 'Total files uploaded to storage',
   unit: '1',
 });
 

@@ -76,6 +76,11 @@ export const API_CONFIG = {
     CALL_STATISTICS: '/calls/statistics',
     CALL_STATUS_HISTORY: (id: string | number) => `/calls/${id}/status-history`,
     CALL_IMAGE: (callId: string | number, imageId: string | number) => `/calls/${callId}/images/${imageId}`,
+
+    CHAMADO_LOCAIS: '/chamado-locais',
+    CHAMADO_LOCAL_BY_ID: (id: string | number) => `/chamado-locais/${id}`,
+    DEPARTAMENTOS: '/departamentos',
+    DEPARTAMENTO_BY_ID: (id: string | number) => `/departamentos/${id}`,
     
     // WhatsApp
     WHATSAPP: '/whatsapp',

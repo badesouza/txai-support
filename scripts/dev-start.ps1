@@ -2,16 +2,40 @@
 # Development Startup Script (Windows PowerShell)
 # =============================================================================
 # This script:
-# 1. Kills processes on required ports (3000, 3001, Docker services)
-# 2. Checks and displays .env.local files
-# 3. Spawns 3 terminal windows with default system shell
+# 1. Checks Docker is running
+# 2. Checks and creates .env.local files if needed
+# 3. Starts Docker services in detached mode
+# 4. Provides instructions to start backend and frontend manually
 # =============================================================================
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 # Get script directory and repo root
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..")
+$RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
+
+# Function to check if Docker is ready
+function Test-DockerReady {
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        $result = docker ps 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            return $true
+        }
+        # Also check if error is about connection (Docker not ready yet)
+        $errorText = $result | Out-String
+        if ($errorText -match "Cannot connect to the Docker daemon" -or 
+            $errorText -match "dockerDesktopLinuxEngine" -or
+            $errorText -match "pipe") {
+            return $false
+        }
+        # Other errors might still mean Docker is available
+        return $false
+    }
+    catch {
+        return $false
+    }
+}
 
 Write-Host "========================================" -ForegroundColor Blue
 Write-Host "  TXAI Support - Dev Mode Startup" -ForegroundColor Blue
@@ -19,161 +43,177 @@ Write-Host "========================================" -ForegroundColor Blue
 Write-Host ""
 
 # =============================================================================
-# Step 1: Kill processes on required ports
+# Step 0: Check Docker is ready
 # =============================================================================
-Write-Host "Freeing required ports..." -ForegroundColor Cyan
+Write-Host "Verificando Docker..." -ForegroundColor Cyan
 
-# Kill processes on port 3000 (frontend)
-$port3000 = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
-if ($port3000) {
-    Write-Host "  Killing process on port 3000..." -ForegroundColor Yellow
-    $port3000 | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Seconds 1
-}
+$dockerReady = Test-DockerReady
 
-# Kill processes on port 3001 (backend)
-$port3001 = Get-NetTCPConnection -LocalPort 3001 -ErrorAction SilentlyContinue
-if ($port3001) {
-    Write-Host "  Killing process on port 3001..." -ForegroundColor Yellow
-    $port3001 | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Seconds 1
-}
-
-# Stop Docker services
-try {
-    Push-Location $RepoRoot
-    $dockerCompose = docker compose -f "docker-compose.dev.yml" ps -q 2>$null
-    if ($dockerCompose) {
-        Write-Host "  Stopping Docker services..." -ForegroundColor Yellow
-        docker compose -f "docker-compose.dev.yml" down 2>$null | Out-Null
-        Start-Sleep -Seconds 1
+if (-not $dockerReady) {
+    Write-Host "⏳ Docker nao esta pronto, aguardando Docker Desktop iniciar..." -ForegroundColor Yellow
+    
+    $maxAttempts = 30
+    $attempt = 0
+    while ($attempt -lt $maxAttempts -and -not $dockerReady) {
+        Start-Sleep -Seconds 2
+        $dockerReady = Test-DockerReady
+        $attempt++
+        if ($attempt % 5 -eq 0) {
+            Write-Host "  Ainda aguardando... ($attempt/$maxAttempts)" -ForegroundColor Gray
+        }
     }
-} finally {
-    Pop-Location
+    
+    if (-not $dockerReady) {
+        Write-Host ""
+        Write-Host "❌ Docker nao esta disponivel!" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Por favor, certifique-se de que o Docker Desktop esta rodando." -ForegroundColor Yellow
+        Write-Host "Aguarde alguns segundos e tente novamente." -ForegroundColor Yellow
+        Write-Host ""
+        exit 1
+    }
 }
 
-Write-Host "✅ Ports freed" -ForegroundColor Green
+Write-Host "✅ Docker esta pronto" -ForegroundColor Green
 Write-Host ""
 
 # =============================================================================
-# Step 2: Check .env.local files and requirements
+# Step 2: Check and create .env.local files
 # =============================================================================
-Write-Host "Checking environment configuration..." -ForegroundColor Cyan
+Write-Host "Verificando arquivos de configuracao..." -ForegroundColor Cyan
 Write-Host ""
-
-$MissingFiles = @()
 
 # Check root .env.local
 $rootEnvLocal = Join-Path $RepoRoot ".env.local"
 if (-not (Test-Path $rootEnvLocal)) {
-    $MissingFiles += "Root .env.local"
-    Write-Host "⚠️  Root .env.local not found" -ForegroundColor Yellow
+    Write-Host "⚠️  Root .env.local nao encontrado" -ForegroundColor Yellow
     $rootEnvExample = Join-Path $RepoRoot ".env.local.example"
     if (Test-Path $rootEnvExample) {
-        Write-Host "   Creating from template..." -ForegroundColor Cyan
+        Write-Host "   Criando a partir do template..." -ForegroundColor Cyan
         Copy-Item $rootEnvExample $rootEnvLocal
+        Write-Host "✅ Root .env.local criado" -ForegroundColor Green
     }
-} else {
-    Write-Host "✅ Root .env.local found" -ForegroundColor Green
+    else {
+        Write-Host "⚠️  Template .env.local.example nao encontrado" -ForegroundColor Yellow
+    }
 }
-
-Write-Host "   Contents:" -ForegroundColor Cyan
-if (Test-Path $rootEnvLocal) {
-    Get-Content $rootEnvLocal | ForEach-Object { Write-Host "   $_" }
-} else {
-    Write-Host "   File not found" -ForegroundColor Red
+else {
+    Write-Host "✅ Root .env.local encontrado" -ForegroundColor Green
 }
-Write-Host ""
 
 # Check backend .env.local
 $backendEnvLocal = Join-Path $RepoRoot "backend\.env.local"
 if (-not (Test-Path $backendEnvLocal)) {
-    $MissingFiles += "Backend .env.local"
-    Write-Host "⚠️  Backend .env.local not found" -ForegroundColor Yellow
+    Write-Host "⚠️  Backend .env.local nao encontrado" -ForegroundColor Yellow
     $backendEnvExample = Join-Path $RepoRoot "backend\.env.local.example"
     if (Test-Path $backendEnvExample) {
-        Write-Host "   Creating from template..." -ForegroundColor Cyan
+        Write-Host "   Criando a partir do template..." -ForegroundColor Cyan
         Copy-Item $backendEnvExample $backendEnvLocal
+        Write-Host "✅ Backend .env.local criado" -ForegroundColor Green
     }
-} else {
-    Write-Host "✅ Backend .env.local found" -ForegroundColor Green
+    else {
+        Write-Host "⚠️  Template backend\.env.local.example nao encontrado" -ForegroundColor Yellow
+    }
 }
-
-Write-Host "   Contents:" -ForegroundColor Cyan
-if (Test-Path $backendEnvLocal) {
-    Get-Content $backendEnvLocal | ForEach-Object { Write-Host "   $_" }
-} else {
-    Write-Host "   File not found" -ForegroundColor Red
+else {
+    Write-Host "✅ Backend .env.local encontrado" -ForegroundColor Green
 }
-Write-Host ""
 
 # Check frontend .env.local
 $frontendEnvLocal = Join-Path $RepoRoot "frontend\.env.local"
 if (-not (Test-Path $frontendEnvLocal)) {
-    $MissingFiles += "Frontend .env.local"
-    Write-Host "⚠️  Frontend .env.local not found" -ForegroundColor Yellow
+    Write-Host "⚠️  Frontend .env.local nao encontrado" -ForegroundColor Yellow
     $frontendEnvExample = Join-Path $RepoRoot "frontend\.env.local.example"
     if (Test-Path $frontendEnvExample) {
-        Write-Host "   Creating from template..." -ForegroundColor Cyan
+        Write-Host "   Criando a partir do template..." -ForegroundColor Cyan
         Copy-Item $frontendEnvExample $frontendEnvLocal
+        Write-Host "✅ Frontend .env.local criado" -ForegroundColor Green
     }
-} else {
-    Write-Host "✅ Frontend .env.local found" -ForegroundColor Green
+    else {
+        Write-Host "⚠️  Template frontend\.env.local.example nao encontrado" -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "✅ Frontend .env.local encontrado" -ForegroundColor Green
 }
 
-Write-Host "   Contents:" -ForegroundColor Cyan
-if (Test-Path $frontendEnvLocal) {
-    Get-Content $frontendEnvLocal | ForEach-Object { Write-Host "   $_" }
-} else {
-    Write-Host "   File not found" -ForegroundColor Red
-}
 Write-Host ""
 
-# Check Docker
+# =============================================================================
+# Step 3: Start Docker services
+# =============================================================================
+Write-Host "Iniciando servicos Docker..." -ForegroundColor Cyan
+
+Set-Location $RepoRoot
+
+# Stop any existing services first (ignore errors)
+$ErrorActionPreference = "SilentlyContinue"
 try {
-    docker info 2>$null | Out-Null
-    Write-Host "✅ Docker is running" -ForegroundColor Green
-} catch {
-    Write-Host "❌ Docker is not running. Please start Docker Desktop and try again." -ForegroundColor Red
+    $null = docker compose -f "docker-compose.dev.yml" ps -q 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Parando servicos existentes..." -ForegroundColor Yellow
+        $null = docker compose -f "docker-compose.dev.yml" down 2>&1
+        Start-Sleep -Seconds 2
+    }
+}
+catch {
+    # Ignore errors when stopping services
+}
+
+$ErrorActionPreference = "Continue"
+
+# Verify Docker is still ready before starting
+Write-Host "  Verificando Docker novamente antes de iniciar..." -ForegroundColor Cyan
+if (-not (Test-DockerReady)) {
+    Write-Host ""
+    Write-Host "❌ Docker nao esta mais disponivel. Por favor, verifique o Docker Desktop." -ForegroundColor Red
+    Write-Host ""
     exit 1
 }
-Write-Host ""
 
-# =============================================================================
-# Step 3: Spawn terminals with default system shell
-# =============================================================================
-Write-Host "Spawning development terminals..." -ForegroundColor Cyan
-Write-Host ""
+# Start services in detached mode
+Write-Host "  Iniciando servicos em modo detached..." -ForegroundColor Cyan
 
-# Windows - use Start-Process to open new PowerShell windows
-# Terminal 1: Docker Services
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RepoRoot'; npm run dev:services" -WindowStyle Normal
+docker compose -f "docker-compose.dev.yml" up -d
+$dockerExitCode = $LASTEXITCODE
 
-Start-Sleep -Seconds 1
-
-# Terminal 2: Backend
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RepoRoot\backend'; npm run dev" -WindowStyle Normal
-
-Start-Sleep -Seconds 1
-
-# Terminal 3: Frontend
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RepoRoot\frontend'; npm start" -WindowStyle Normal
-
-Write-Host ""
-Write-Host "✅ All terminals spawned successfully!" -ForegroundColor Green
-Write-Host ""
-Write-Host "Terminal windows opened:" -ForegroundColor Cyan
-Write-Host "   1. Docker Services (Firebase, WPPConnect, Redis, GCS)" -ForegroundColor Green
-Write-Host "   2. Backend (http://localhost:3001)" -ForegroundColor Green
-Write-Host "   3. Frontend (http://localhost:3000)" -ForegroundColor Green
-Write-Host ""
-Write-Host "Access URLs:" -ForegroundColor Cyan
-Write-Host "   Frontend:     http://localhost:3000" -ForegroundColor Green
-Write-Host "   Backend API:  http://localhost:3001/api" -ForegroundColor Green
-Write-Host "   Swagger:      http://localhost:3001/api-docs" -ForegroundColor Green
-Write-Host "   Firebase UI:  http://localhost:4000" -ForegroundColor Green
-Write-Host ""
-Write-Host "💡 Admin user is automatically created on backend startup" -ForegroundColor Yellow
-Write-Host "   Email: admin@txai.com | Password: admin123" -ForegroundColor Yellow
-Write-Host ""
+if ($dockerExitCode -eq 0) {
+    Write-Host "✅ Servicos Docker iniciados" -ForegroundColor Green
+    Write-Host ""
+    
+    # Wait a bit for services to start
+    Write-Host "Aguardando servicos iniciarem..." -ForegroundColor Cyan
+    Start-Sleep -Seconds 5
+    
+    Write-Host ""
+    Write-Host "✅ Ambiente de desenvolvimento configurado!" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Para iniciar o backend e frontend, execute em terminais separados:" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Terminal 1 - Backend:" -ForegroundColor Yellow
+    Write-Host "    cd backend" -ForegroundColor White
+    Write-Host "    npm run dev" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Terminal 2 - Frontend:" -ForegroundColor Yellow
+    Write-Host "    cd frontend" -ForegroundColor White
+    Write-Host "    npm start" -ForegroundColor White
+    Write-Host ""
+    Write-Host "URLs de acesso:" -ForegroundColor Cyan
+    Write-Host "   Frontend:     http://localhost:3000" -ForegroundColor Green
+    Write-Host "   Backend API:  http://localhost:3001/api" -ForegroundColor Green
+    Write-Host "   Swagger:      http://localhost:3001/api-docs" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Para ver logs dos servicos Docker:" -ForegroundColor Cyan
+    Write-Host "   npm run dev:services:logs" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Para parar os servicos Docker:" -ForegroundColor Cyan
+    Write-Host "   npm run dev:services:stop" -ForegroundColor White
+    Write-Host ""
+}
+else {
+    Write-Host ""
+    Write-Host "❌ Erro ao iniciar servicos Docker" -ForegroundColor Red
+    Write-Host ""
+    exit 1
+}
 

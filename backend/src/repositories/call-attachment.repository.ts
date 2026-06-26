@@ -1,44 +1,35 @@
-import { getFirestore, Collections } from '../lib/firebase';
-import {
-  CallAttachment,
-  CallAttachmentCreateInput,
-  CallSubcollections,
-} from '../types/firestore-models';
+import { getPool } from '../lib/db';
+import { toDate } from '../lib/sql-helpers';
+import { CallAttachment, CallAttachmentCreateInput } from '../types/call-models';
 import { v4 as uuidv4 } from 'uuid';
 
-const db = getFirestore();
-
-/**
- * Repository for managing attachments in the calls/{callId}/attachments subcollection.
- * 
- * This unified attachments collection handles both:
- * - User-uploaded images/files
- * - WhatsApp media (images, videos, documents)
- * 
- * Benefits:
- * - Single place for all call-related files
- * - Automatic cleanup when call is deleted
- * - Easy querying by source type
- */
 export class CallAttachmentRepository {
   /**
-   * Get the attachments subcollection reference for a call.
-   */
-  private static getAttachmentsCollection(callId: string) {
-    return db
-      .collection(Collections.CALLS)
-      .doc(callId)
-      .collection(CallSubcollections.ATTACHMENTS);
-  }
-
-  /**
-   * Create a new attachment in a call's attachments subcollection.
+   * Create a new attachment for a call.
    */
   static async create(callId: string, data: CallAttachmentCreateInput): Promise<CallAttachment> {
     const id = uuidv4();
     const now = new Date();
 
-    const attachment: CallAttachment = {
+    await getPool().query(
+      `INSERT INTO call_attachments (
+        id, call_id, filename, path, mimetype, size, source, session_name, message_id, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        id,
+        callId,
+        data.filename,
+        data.path,
+        data.mimetype,
+        data.size ?? null,
+        data.source,
+        data.sessionName ?? null,
+        data.messageId ?? null,
+        now,
+      ]
+    );
+
+    return {
       id,
       filename: data.filename,
       path: data.path,
@@ -49,39 +40,16 @@ export class CallAttachmentRepository {
       messageId: data.messageId,
       createdAt: now,
     };
-
-    await this.getAttachmentsCollection(callId).doc(id).set(attachment);
-
-    return attachment;
   }
 
   /**
-   * Create multiple attachments in a batch.
+   * Create multiple attachments.
    */
   static async createMany(callId: string, items: CallAttachmentCreateInput[]): Promise<CallAttachment[]> {
-    const now = new Date();
     const attachments: CallAttachment[] = [];
-    const batch = db.batch();
-
-    for (const data of items) {
-      const id = uuidv4();
-      const attachment: CallAttachment = {
-        id,
-        filename: data.filename,
-        path: data.path,
-        mimetype: data.mimetype,
-        size: data.size,
-        source: data.source,
-        sessionName: data.sessionName,
-        messageId: data.messageId,
-        createdAt: now,
-      };
-
-      batch.set(this.getAttachmentsCollection(callId).doc(id), attachment);
-      attachments.push(attachment);
+    for (const item of items) {
+      attachments.push(await this.create(callId, item));
     }
-
-    await batch.commit();
     return attachments;
   }
 
@@ -89,112 +57,100 @@ export class CallAttachmentRepository {
    * Find an attachment by ID within a call.
    */
   static async findById(callId: string, attachmentId: string): Promise<CallAttachment | null> {
-    const doc = await this.getAttachmentsCollection(callId).doc(attachmentId).get();
-    if (!doc.exists) {
+    const result = await getPool().query(
+      'SELECT * FROM call_attachments WHERE call_id = $1 AND id = $2',
+      [callId, attachmentId]
+    );
+    if (result.rowCount === 0) {
       return null;
     }
-    return this.docToAttachment(doc);
+    return this.rowToAttachment(result.rows[0]);
   }
 
   /**
    * Find all attachments for a call.
    */
   static async findByCallId(callId: string, limit = 100): Promise<CallAttachment[]> {
-    const snapshot = await this.getAttachmentsCollection(callId)
-      .orderBy('createdAt', 'asc')
-      .limit(limit)
-      .get();
-
-    return snapshot.docs.map((doc) => this.docToAttachment(doc));
+    const result = await getPool().query(
+      'SELECT * FROM call_attachments WHERE call_id = $1 ORDER BY created_at ASC LIMIT $2',
+      [callId, limit]
+    );
+    return result.rows.map((row) => this.rowToAttachment(row));
   }
 
   /**
-   * Find attachments by source type (upload or whatsapp).
+   * Find attachments by source type.
    */
   static async findBySource(
     callId: string,
     source: 'upload' | 'whatsapp',
     limit = 50
   ): Promise<CallAttachment[]> {
-    const snapshot = await this.getAttachmentsCollection(callId)
-      .where('source', '==', source)
-      .orderBy('createdAt', 'asc')
-      .limit(limit)
-      .get();
-
-    return snapshot.docs.map((doc) => this.docToAttachment(doc));
+    const result = await getPool().query(
+      `SELECT * FROM call_attachments
+       WHERE call_id = $1 AND source = $2
+       ORDER BY created_at ASC
+       LIMIT $3`,
+      [callId, source, limit]
+    );
+    return result.rows.map((row) => this.rowToAttachment(row));
   }
 
   /**
-   * Find attachment by message ID (for WhatsApp media).
+   * Find attachment by message ID.
    */
   static async findByMessageId(callId: string, messageId: string): Promise<CallAttachment | null> {
-    const snapshot = await this.getAttachmentsCollection(callId)
-      .where('messageId', '==', messageId)
-      .limit(1)
-      .get();
-
-    if (snapshot.empty) {
+    const result = await getPool().query(
+      'SELECT * FROM call_attachments WHERE call_id = $1 AND message_id = $2 LIMIT 1',
+      [callId, messageId]
+    );
+    if (result.rowCount === 0) {
       return null;
     }
-    return this.docToAttachment(snapshot.docs[0]);
+    return this.rowToAttachment(result.rows[0]);
   }
 
   /**
    * Get attachment count for a call.
    */
   static async countByCallId(callId: string): Promise<number> {
-    const snapshot = await this.getAttachmentsCollection(callId).count().get();
-    return snapshot.data().count;
+    const result = await getPool().query(
+      'SELECT COUNT(*)::int AS count FROM call_attachments WHERE call_id = $1',
+      [callId]
+    );
+    return result.rows[0].count;
   }
 
   /**
    * Delete an attachment.
-   * Note: This only removes the Firestore document. The actual file in GCS
-   * should be cleaned up separately if needed.
    */
   static async delete(callId: string, attachmentId: string): Promise<boolean> {
-    const docRef = this.getAttachmentsCollection(callId).doc(attachmentId);
-    const doc = await docRef.get();
-
-    if (!doc.exists) {
-      return false;
-    }
-
-    await docRef.delete();
-    return true;
+    const result = await getPool().query(
+      'DELETE FROM call_attachments WHERE call_id = $1 AND id = $2',
+      [callId, attachmentId]
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   /**
    * Delete all attachments for a call.
-   * Note: This is typically handled automatically when deleting the call document.
    */
   static async deleteAllByCallId(callId: string): Promise<number> {
-    const snapshot = await this.getAttachmentsCollection(callId).get();
-
-    const batch = db.batch();
-    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-    await batch.commit();
-
-    return snapshot.size;
+    const result = await getPool().query('DELETE FROM call_attachments WHERE call_id = $1', [callId]);
+    return result.rowCount ?? 0;
   }
 
-  /**
-   * Convert Firestore document to CallAttachment.
-   */
-  private static docToAttachment(doc: FirebaseFirestore.DocumentSnapshot): CallAttachment {
-    const data = doc.data()!;
+  private static rowToAttachment(row: Record<string, unknown>): CallAttachment {
     return {
-      id: doc.id,
-      filename: data.filename,
-      path: data.path,
-      mimetype: data.mimetype,
-      size: data.size,
-      source: data.source,
-      sessionName: data.sessionName,
-      messageId: data.messageId,
-      createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
+      id: String(row.id),
+      filename: String(row.filename),
+      path: String(row.path),
+      mimetype: String(row.mimetype),
+      size: row.size !== null && row.size !== undefined ? Number(row.size) : undefined,
+      source: row.source as CallAttachment['source'],
+      sessionName: row.session_name ? String(row.session_name) : undefined,
+      messageId: row.message_id ? String(row.message_id) : undefined,
+      createdAt: toDate(row.created_at),
     };
   }
 }
-

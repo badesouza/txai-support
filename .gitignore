@@ -150,6 +150,9 @@ tokens/
 # Local secrets (must exist locally, never commit)
 .secrets.local
 
+# Firebase cache (legacy, not used)
+.firebase/
+
 # PM2
 .pm2/
 
@@ -287,19 +290,7 @@ test.sqlite3
 test.log
 
 # =============================================================================
-# Firebase
+# Uploads (local disk storage)
 # =============================================================================
-
-# Firebase cache and debug logs
-.firebase/
-firebase-debug.log
-firebase-debug.*.log
-
-# NOTE: .firebaserc and firebase.json ARE committed (project configuration)
-# Terraform variables (contains secrets - NEVER commit!)
-infra/terraform/environments/dev/terraform.tfvars
-*.tfvars
-!*.tfvars.example
-
-# Deployment state files (generated during deployment)
-scripts/gcp/.deploy-state/
+backend/uploads/
+uploads/

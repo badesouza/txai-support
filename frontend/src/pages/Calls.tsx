@@ -1,26 +1,26 @@
 import { Link } from 'react-router-dom';
+import { PlusOutlined } from '@ant-design/icons';
 import CallTable from '../components/CallTable';
+import PageLayout from '../components/layout/PageLayout';
+import PageCard from '../components/layout/PageCard';
 
 export default function Calls() {
   return (
-    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="sm:flex sm:items-center">
-        <div className="sm:flex-auto">
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Chamados</h1>
+    <PageLayout
+      title="Chamados"
+      description="Acompanhe solicitações, status, prioridade e histórico de atendimento."
+      action={
+        <Link to="/calls/new" className="btn-link">
+          <PlusOutlined className="mr-1.5" />
+          Novo chamado
+        </Link>
+      }
+    >
+      <PageCard noPadding>
+        <div className="p-5">
+          <CallTable />
         </div>
-        <div className="mt-4 sm:mt-0 sm:ml-16 sm:flex-none">
-          <Link
-            to="/calls/new"
-            className="inline-flex items-center justify-center rounded-md border border-transparent bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 sm:w-auto"
-          >
-            Novo Chamado
-          </Link>
-        </div>
-      </div>
-
-      <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow">
-        <CallTable />
-      </div>
-    </div>
+      </PageCard>
+    </PageLayout>
   );
-} 
+}

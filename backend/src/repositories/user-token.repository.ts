@@ -1,118 +1,87 @@
-import { getFirestore, Collections } from '../lib/firebase';
+import { getPool } from '../lib/db';
+import { toDate } from '../lib/sql-helpers';
 import { UserToken, UserTokenCreateInput } from '../types/models';
 import { v4 as uuidv4 } from 'uuid';
 
-const db = getFirestore();
-const collection = db.collection(Collections.USER_TOKENS);
-
 export class UserTokenRepository {
   /**
-   * Create a new token
+   * Create a new token.
    */
   static async create(data: UserTokenCreateInput): Promise<UserToken> {
     const id = uuidv4();
     const now = new Date();
-    
-    const token: UserToken = {
+
+    await getPool().query(
+      `INSERT INTO user_tokens (id, user_id, token, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [id, data.userId, data.token, now, now]
+    );
+
+    return {
       id,
       userId: data.userId,
       token: data.token,
       createdAt: now,
       updatedAt: now,
     };
-
-    await collection.doc(id).set(token);
-    
-    return token;
   }
 
   /**
-   * Find token by value
+   * Find token by value.
    */
   static async findByToken(token: string): Promise<UserToken | null> {
-    const snapshot = await collection
-      .where('token', '==', token)
-      .limit(1)
-      .get();
-    
-    if (snapshot.empty) {
+    const result = await getPool().query(
+      'SELECT * FROM user_tokens WHERE token = $1 LIMIT 1',
+      [token]
+    );
+    if (result.rowCount === 0) {
       return null;
     }
-    
-    return this.docToToken(snapshot.docs[0]);
+    return this.rowToToken(result.rows[0]);
   }
 
   /**
-   * Find tokens by user ID
+   * Find tokens by user ID.
    */
   static async findByUserId(userId: string): Promise<UserToken[]> {
-    const snapshot = await collection
-      .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .get();
-    
-    return snapshot.docs.map(doc => this.docToToken(doc));
+    const result = await getPool().query(
+      'SELECT * FROM user_tokens WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows.map((row) => this.rowToToken(row));
   }
 
   /**
-   * Delete token
+   * Delete token.
    */
   static async delete(id: string): Promise<boolean> {
-    const docRef = collection.doc(id);
-    const doc = await docRef.get();
-    
-    if (!doc.exists) {
-      return false;
-    }
-
-    await docRef.delete();
-    return true;
+    const result = await getPool().query('DELETE FROM user_tokens WHERE id = $1', [id]);
+    return (result.rowCount ?? 0) > 0;
   }
 
   /**
-   * Delete token by value
+   * Delete token by value.
    */
   static async deleteByToken(token: string): Promise<boolean> {
-    const snapshot = await collection
-      .where('token', '==', token)
-      .limit(1)
-      .get();
-    
-    if (snapshot.empty) {
-      return false;
-    }
-
-    await snapshot.docs[0].ref.delete();
-    return true;
+    const result = await getPool().query('DELETE FROM user_tokens WHERE token = $1', [token]);
+    return (result.rowCount ?? 0) > 0;
   }
 
   /**
-   * Delete all tokens for a user
+   * Delete all tokens for a user.
    */
   static async deleteByUserId(userId: string): Promise<number> {
-    const snapshot = await collection
-      .where('userId', '==', userId)
-      .get();
-    
-    const batch = db.batch();
-    snapshot.docs.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
-    
-    return snapshot.size;
+    const result = await getPool().query('DELETE FROM user_tokens WHERE user_id = $1', [userId]);
+    return result.rowCount ?? 0;
   }
 
-  /**
-   * Convert Firestore document to UserToken
-   */
-  private static docToToken(doc: FirebaseFirestore.DocumentSnapshot): UserToken {
-    const data = doc.data()!;
+  private static rowToToken(row: Record<string, unknown>): UserToken {
     return {
-      id: doc.id,
-      userId: data.userId,
-      token: data.token,
-      createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
-      updatedAt: data.updatedAt?.toDate?.() || new Date(data.updatedAt),
+      id: String(row.id),
+      userId: String(row.user_id),
+      token: String(row.token),
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
     };
   }
 }
-

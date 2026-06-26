@@ -1,5 +1,5 @@
 // =============================================================================
-// Data Models for Firestore
+// Data Models
 // =============================================================================
 
 export type Profile = 'ADMIN' | 'USER';
@@ -52,6 +52,10 @@ export interface Call {
   userName?: string;
   userEmail?: string;
   userPhone?: string;
+  chamadoLocalId?: string;
+  chamadoLocalName?: string;
+  departamentoId?: string;
+  departamentoName?: string;
   // Image URLs (denormalized) - legacy, use attachments subcollection
   imageUrls?: string[];
   
@@ -76,6 +80,10 @@ export interface CallCreateInput {
   userName?: string;
   userEmail?: string;
   userPhone?: string;
+  chamadoLocalId?: string;
+  chamadoLocalName?: string;
+  departamentoId?: string;
+  departamentoName?: string;
 }
 
 export interface CallUpdateInput {
@@ -83,6 +91,48 @@ export interface CallUpdateInput {
   description?: string;
   status?: string;
   priority?: string;
+  chamadoLocalId?: string;
+  chamadoLocalName?: string;
+  departamentoId?: string | null;
+  departamentoName?: string | null;
+}
+
+// =============================================================================
+// Chamado Local
+// =============================================================================
+
+export interface ChamadoLocal {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChamadoLocalCreateInput {
+  name: string;
+}
+
+export interface ChamadoLocalUpdateInput {
+  name?: string;
+}
+
+// =============================================================================
+// Departamento
+// =============================================================================
+
+export interface Departamento {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface DepartamentoCreateInput {
+  name: string;
+}
+
+export interface DepartamentoUpdateInput {
+  name?: string;
 }
 
 // =============================================================================
@@ -184,7 +234,6 @@ export interface PaginationResult<T> {
   page: number;
   limit: number;
   totalPages: number;
-  lastDoc?: FirebaseFirestore.QueryDocumentSnapshot;
 }
 
 export interface PaginationOptions {
@@ -192,15 +241,5 @@ export interface PaginationOptions {
   limit?: number;
   orderBy?: string;
   orderDirection?: 'asc' | 'desc';
-  startAfter?: FirebaseFirestore.QueryDocumentSnapshot;
-}
-
-// =============================================================================
-// Counter (for pagination totals)
-// =============================================================================
-
-export interface Counter {
-  id: string;
-  count: number;
 }
 

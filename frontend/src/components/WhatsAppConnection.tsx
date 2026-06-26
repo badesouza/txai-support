@@ -28,9 +28,12 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
   // Separar flags para evitar bloqueio entre status <> qr
   const inFlightStatusRef = useRef(false);
   const inFlightQrRef = useRef(false);
+  const wasConnectedRef = useRef(false);
 
   // mountedRef para evitar setState após unmount
   const mountedRef = useRef(false);
+
+  const POLL_INTERVAL_MS = 3000;
 
   // Stop polling
   const stopPolling = useCallback(() => {
@@ -50,7 +53,6 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
     try {
       const response = await api.get(getApiPath('qrcode'), { validateStatus: () => true });
       if (response.status === 202) {
-        if (mountedRef.current) setQrCode(null);
         return null;
       }
       if (response.status >= 400) {
@@ -59,23 +61,22 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
 
       const qrCodeData = response?.data?.qrCode ?? null;
 
-      if (!mountedRef.current) return null; // componente desmontado, abortar
+      if (!mountedRef.current) return null;
 
       if (!qrCodeData) {
-        setQrCode(null);
         return null;
       }
-      if (String(qrCodeData).startsWith('data:image')) {
-        setQrCode(String(qrCodeData));
-        return String(qrCodeData);
-      }
-      // Back-compat: treat long strings as base64 payloads
-      const formattedQr = `data:image/png;base64,${String(qrCodeData)}`;
-      setQrCode(formattedQr);
+
+      const formattedQr = String(qrCodeData).startsWith('data:image')
+        ? String(qrCodeData)
+        : `data:image/png;base64,${String(qrCodeData)}`;
+
+      setQrCode((current) => (current === formattedQr ? current : formattedQr));
       return formattedQr;
     } catch (error) {
-      if (mountedRef.current) message.error('Erro ao gerar QR Code');
-      setQrCode(null);
+      if (mountedRef.current) {
+        console.error('Erro ao gerar QR Code:', error);
+      }
       return null;
     } finally {
       inFlightQrRef.current = false;
@@ -90,7 +91,7 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
     inFlightStatusRef.current = true;
     try {
       const response = await api.get(getApiPath('status'));
-      const { connected = false, phone = null } = response?.data ?? {};
+      const { connected = false, phone = null, qrCode: statusQrCode = null } = response?.data ?? {};
 
       if (!mountedRef.current) return { connected, phone };
 
@@ -99,16 +100,30 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
         setConnectedPhone(phone);
         setQrCode(null);
         stopPolling();
-        message.success('WhatsApp conectado com sucesso!');
+        if (!wasConnectedRef.current) {
+          wasConnectedRef.current = true;
+          message.success('WhatsApp conectado com sucesso!');
+        }
       } else {
+        wasConnectedRef.current = false;
         setIsConnected(false);
         setConnectedPhone(null);
-        await requestQrCode();
+
+        if (statusQrCode) {
+          const formattedQr = String(statusQrCode).startsWith('data:image')
+            ? String(statusQrCode)
+            : `data:image/png;base64,${String(statusQrCode)}`;
+          setQrCode((current) => (current === formattedQr ? current : formattedQr));
+        } else {
+          await requestQrCode();
+        }
       }
 
       return { connected, phone };
     } catch (error) {
-      if (mountedRef.current) message.error('Erro ao verificar status do WhatsApp');
+      if (mountedRef.current) {
+        console.error('Erro ao verificar status do WhatsApp:', error);
+      }
       return null;
     } finally {
       inFlightStatusRef.current = false;
@@ -116,15 +131,22 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
     }
   }, [getApiPath, requestQrCode, stopPolling]);
 
-  // Start polling with 10 second interval
+  // Start polling until connected
   const startPolling = useCallback(() => {
-    stopPolling(); // Clear any existing interval
+    stopPolling();
 
     pollingRef.current = setInterval(() => {
-      // Não aguardamos aqui; checkStatus já protege concorrência
       void checkStatus();
-    }, 10000); // 10 segundos
+    }, POLL_INTERVAL_MS);
   }, [checkStatus, stopPolling]);
+
+  const initializeSession = useCallback(async () => {
+    try {
+      await api.post(getApiPath('initialize'));
+    } catch (error) {
+      console.warn('Falha ao inicializar sessão WhatsApp (continuando):', error);
+    }
+  }, [getApiPath]);
 
   const disconnectWhatsApp = async () => {
     setLoading(true);
@@ -155,10 +177,13 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
 
   const reconnectWhatsApp = async () => {
     setLoading(true);
-    if (mountedRef.current) setCheckingStatus(true);
+    if (mountedRef.current) {
+      setCheckingStatus(true);
+      setQrCode(null);
+    }
     try {
+      await initializeSession();
       const status = await checkStatus();
-      // Decida com base no retorno (evita depender de isConnected stale)
       if (!status?.connected) {
         startPolling();
       }
@@ -170,17 +195,18 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
     }
   };
 
-  // Initial mount: verificar status e iniciar polling automático
+  // Initial mount: inicializar sessão, verificar status e iniciar polling
   useEffect(() => {
     mountedRef.current = true;
+    wasConnectedRef.current = false;
 
-    // Reset state when session changes
     setQrCode(null);
     setIsConnected(false);
     setConnectedPhone(null);
     setCheckingStatus(true);
 
     (async () => {
+      await initializeSession();
       const status = await checkStatus();
       if (!status?.connected) {
         startPolling();
@@ -191,35 +217,33 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
       mountedRef.current = false;
       stopPolling();
     };
-  }, [session, checkStatus, startPolling, stopPolling]);
+  }, [session, checkStatus, startPolling, stopPolling, initializeSession]);
 
   if (checkingStatus) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <div className="text-center my-5">
-          <Spin size="large" />
-          <p className="mt-4 text-gray-700 dark:text-gray-300">Verificando status do WhatsApp...</p>
-        </div>
+      <div className="py-8 text-center">
+        <Spin size="large" />
+        <p className="mt-4 text-gray-400">Verificando status do WhatsApp...</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+    <div>
       {!isConnected && !qrCode && (
-        <div className="text-center my-5">
-          <Text className="text-gray-700 dark:text-gray-300">Inicializando conexão do WhatsApp...</Text>
+        <div className="my-5 text-center">
+          <Text className="text-gray-400">Inicializando conexão do WhatsApp...</Text>
         </div>
       )}
 
       {!isConnected && !qrCode && (
-        <div className="text-center my-5">
-          <div className="flex justify-center items-center my-5">
-            <div className="w-full max-w-xs sm:max-w-sm md:max-w-md aspect-square border-2 border-gray-300 rounded-lg flex items-center justify-center bg-gray-100">
-              <div className="text-center px-4">
+        <div className="my-5 text-center">
+          <div className="my-5 flex items-center justify-center">
+            <div className="flex aspect-square w-full max-w-xs items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] sm:max-w-sm md:max-w-md">
+              <div className="px-4 text-center">
                 <Spin size="large" />
-                <p className="mt-4 text-gray-600 text-sm sm:text-base">Gerando QR Code...</p>
-                <p className="text-xs sm:text-sm text-gray-500 mt-2">Aguarde enquanto o QR Code é gerado</p>
+                <p className="mt-4 text-sm text-gray-400 sm:text-base">Gerando QR Code...</p>
+                <p className="mt-2 text-xs text-gray-500 sm:text-sm">Aguarde enquanto o QR Code é gerado</p>
               </div>
             </div>
           </div>
@@ -227,12 +251,12 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
       )}
 
       {!isConnected && qrCode && (
-        <div className="text-center my-5 px-4">
-          <p className="text-gray-700 dark:text-gray-300 mb-4 text-sm sm:text-base">Escaneie este código QR com o WhatsApp para conectar</p>
-          <div className="flex justify-center items-center my-5">
-            <div className="bg-gray-100 p-4 sm:p-6 md:p-8 rounded-xl shadow-2xl border-2 sm:border-4 border-gray-400 inline-block max-w-full">
-              {/* Container externo com fundo contrastante */}
-              <div className="bg-white p-3 sm:p-4 md:p-6 border-2 sm:border-4 border-black rounded-lg shadow-lg">
+        <div className="my-5 px-4 text-center">
+          <p className="mb-4 text-sm text-gray-400 sm:text-base">Escaneie este código QR com o WhatsApp para conectar</p>
+          <p className="mb-2 text-xs text-gray-500">O código é atualizado automaticamente a cada poucos segundos</p>
+          <div className="my-5 flex items-center justify-center">
+            <div className="inline-block max-w-full rounded-xl border border-white/10 bg-white/[0.04] p-4 sm:p-6 md:p-8">
+              <div className="rounded-lg border-2 border-black bg-white p-3 shadow-lg sm:p-4 md:p-6">
                 {/* Margem interna para criar "quiet zone" do QR code */}
                 <div className="flex justify-center items-center">
                   <img
@@ -250,8 +274,8 @@ const WhatsAppConnection: React.FC<WhatsAppConnectionProps> = ({ session }) => {
                   />
                 </div>
               </div>
-              <p className="text-xs sm:text-sm text-gray-700 mt-3 sm:mt-4 font-semibold">📱 Aponte a câmera do WhatsApp para o código acima</p>
-              <p className="text-xs text-gray-500 mt-1">Certifique-se de que o código está bem iluminado e visível</p>
+              <p className="mt-3 text-xs font-semibold text-gray-400 sm:mt-4 sm:text-sm">Aponte a câmera do WhatsApp para o código acima</p>
+              <p className="mt-1 text-xs text-gray-500">Certifique-se de que o código está bem iluminado e visível</p>
             </div>
           </div>
           <Button

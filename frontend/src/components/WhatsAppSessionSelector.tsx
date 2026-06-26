@@ -185,7 +185,7 @@ const WhatsAppSessionSelector: React.FC<WhatsAppSessionSelectorProps> = ({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-gray-700 dark:text-gray-300 font-medium">Sessão:</span>
+        <span className="font-medium text-gray-300">Sessão:</span>
         <Select
           value={selectedSession}
           onChange={handleSessionChange}

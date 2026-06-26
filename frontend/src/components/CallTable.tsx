@@ -6,6 +6,8 @@ import type { ColumnType } from 'antd/es/table';
 import api from '../config/axios';
 import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
+import { showSuccessToast } from '../utils/toast';
+import { DELETE_ICON_BUTTON_CLASS } from '../constants/ui';
 
 interface Call {
   id: string;
@@ -13,6 +15,8 @@ interface Call {
   description: string;
   status: string;
   priority: string;
+  chamadoLocalName?: string;
+  departamentoName?: string;
   createdAt: string;
   updatedAt?: string;
   user?: {
@@ -66,9 +70,13 @@ interface Call {
 
 interface CallStatusHistoryEntry {
   id: string | number;
-  callId: string | number;
-  oldStatus: string;
-  newStatus: string;
+  callId?: string | number;
+  type?: string;
+  oldStatus?: string;
+  newStatus?: string;
+  oldValue?: string;
+  newValue?: string;
+  field?: string;
   userId?: string | number;
   userName?: string;
   createdAt: string | Date;
@@ -168,6 +176,22 @@ export default function CallTable() {
     } finally {
       setWaLoading(false);
     }
+  };
+
+  const getHistoryEntryLabel = (entry: CallStatusHistoryEntry): string => {
+    if (entry.type === 'department_change') return 'Alteração de departamento';
+    if (entry.type === 'local_change') return 'Alteração de local';
+    if (entry.oldStatus && entry.newStatus) {
+      return getStatusChangeLabel(entry.oldStatus, entry.newStatus);
+    }
+    return 'Atualização registrada';
+  };
+
+  const getHistoryTimelineColor = (entry: CallStatusHistoryEntry): string => {
+    if (entry.type === 'department_change') return '#8b5cf6';
+    if (entry.type === 'local_change') return '#14b8a6';
+    if (entry.newStatus) return getStatusTimelineColor(entry.newStatus);
+    return 'gray';
   };
 
   const getStatusChangeLabel = (oldStatus: string, newStatus: string): string => {
@@ -297,12 +321,7 @@ export default function CallTable() {
     if (result.isConfirmed) {
       try {
         await api.delete(API_CONFIG.ENDPOINTS.CALL_BY_ID(callId));
-        Swal.fire({
-          title: 'Excluído!',
-          text: 'Chamado excluído com sucesso.',
-          icon: 'success',
-          confirmButtonText: 'OK'
-        });
+        showSuccessToast({ title: 'Excluído!', text: 'Chamado excluído com sucesso.' });
         fetchCalls();
       } catch (error) {
         console.error('Erro ao excluir chamado:', error);
@@ -353,14 +372,22 @@ export default function CallTable() {
     },
     {
       title: 'Local',
-      dataIndex: 'title',
-      key: 'title',
+      key: 'local',
       ellipsis: true,
-      render: (title: string) => (
-        <Tooltip title={title}>
-          <span>{title}</span>
-        </Tooltip>
-      ),
+      render: (_, record) => {
+        const localName = record.chamadoLocalName || record.title;
+        return (
+          <Tooltip title={localName}>
+            <span>{localName}</span>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: 'Departamento',
+      key: 'departamento',
+      ellipsis: true,
+      render: (_, record) => record.departamentoName || '—',
     },
     {
       title: 'Usuário',
@@ -492,9 +519,9 @@ export default function CallTable() {
           <Tooltip title="Excluir">
             <Button
               type="link"
-              danger
               icon={<DeleteOutlined />}
               onClick={() => handleDelete(record.id)}
+              className={DELETE_ICON_BUTTON_CLASS}
             />
           </Tooltip>
         </Space>
@@ -503,8 +530,8 @@ export default function CallTable() {
   ];
 
   return (
-    <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
-      <div className="p-4 bg-white dark:bg-gray-800">
+    <div>
+      <div className="data-table-toolbar">
         <Input.Search
           placeholder="Buscar chamados..."
           value={searchTerm}
@@ -513,29 +540,29 @@ export default function CallTable() {
             setCurrentPage(1);
           }}
           allowClear
-          className="mb-4"
-          style={{ maxWidth: 400 }}
-        />
-        
-        <Table
-          columns={columns}
-          dataSource={calls}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: currentPage,
-            pageSize: itemsPerPage,
-            total: totalItems,
-            onChange: (page) => setCurrentPage(page),
-            showSizeChanger: false,
-            showTotal: (total, range) => `Mostrando ${range[0]} a ${range[1]} de ${total} resultados`,
-          }}
-          locale={{
-            emptyText: 'Nenhum chamado encontrado',
-          }}
-          scroll={{ x: 'max-content' }}
+          className="data-table-search"
         />
       </div>
+
+      <Table
+        columns={columns}
+        dataSource={calls}
+        rowKey="id"
+        loading={loading}
+        size="middle"
+        pagination={{
+          current: currentPage,
+          pageSize: itemsPerPage,
+          total: totalItems,
+          onChange: (page) => setCurrentPage(page),
+          showSizeChanger: false,
+          showTotal: (total, range) => `${range[0]}-${range[1]} de ${total}`,
+        }}
+        locale={{
+          emptyText: 'Nenhum chamado encontrado',
+        }}
+        scroll={{ x: 'max-content' }}
+      />
 
       {/* Attachment Gallery Modal */}
       <Modal
@@ -615,7 +642,7 @@ export default function CallTable() {
                       {groupMessagesByDate(waMessages).map((group) => (
                         <div key={group.dateLabel} className="flex flex-col gap-2">
                           <div className="flex justify-center">
-                            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 dark:bg-gray-900 dark:text-gray-300">
+                            <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-gray-300">
                               {group.dateLabel}
                             </span>
                           </div>
@@ -624,7 +651,7 @@ export default function CallTable() {
                             const align = m.isFromUser ? 'justify-end' : 'justify-start';
                             const bubbleColor = m.isFromUser
                               ? 'bg-blue-600 text-white'
-                              : 'bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100';
+                              : 'bg-white/[0.08] text-gray-100 border border-white/10';
 
                             return (
                               <div key={m.id} className={`flex ${align}`}>
@@ -672,7 +699,7 @@ export default function CallTable() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <Typography.Text className="text-gray-600 dark:text-gray-300">
-                        Linha do tempo das mudanças de status, com auditoria de responsável e data/hora.
+                        Linha do tempo de alterações de status, local, departamento e responsável.
                       </Typography.Text>
                       <div className="mt-1 flex items-center gap-2">
                         <Typography.Text type="secondary">
@@ -706,7 +733,7 @@ export default function CallTable() {
                         <div className="text-sm">
                           <div>Nenhum histórico encontrado para este chamado.</div>
                           <div className="text-gray-500 dark:text-gray-400">
-                            Dica: o histórico é criado quando o status é alterado (ex.: Aberto → Em Progresso → Fechado).
+                            Dica: o histórico é criado ao alterar status, local ou departamento do chamado.
                           </div>
                         </div>
                       }
@@ -719,21 +746,32 @@ export default function CallTable() {
                         .map((entry) => {
                           const actorName = entry.user?.name || entry.userName || 'Sistema';
                           const actorEmail = entry.user?.email;
-                          const label = getStatusChangeLabel(entry.oldStatus, entry.newStatus);
+                          const label = getHistoryEntryLabel(entry);
 
                           return {
-                            color: getStatusTimelineColor(entry.newStatus),
+                            color: getHistoryTimelineColor(entry),
                             children: (
                               <div className="flex flex-col gap-1">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <Typography.Text strong>{label}</Typography.Text>
-                                  <Tag color={getStatusColor(entry.oldStatus)} className="select-none">
-                                    {getStatusText(entry.oldStatus)}
-                                  </Tag>
-                                  <span className="text-gray-400">→</span>
-                                  <Tag color={getStatusColor(entry.newStatus)} className="select-none">
-                                    {getStatusText(entry.newStatus)}
-                                  </Tag>
+                                  {((entry.type === 'status_change' || (!entry.type && entry.oldStatus && entry.newStatus)) && entry.oldStatus && entry.newStatus) ? (
+                                    <>
+                                      <Tag color={getStatusColor(entry.oldStatus)} className="select-none">
+                                        {getStatusText(entry.oldStatus)}
+                                      </Tag>
+                                      <span className="text-gray-400">→</span>
+                                      <Tag color={getStatusColor(entry.newStatus)} className="select-none">
+                                        {getStatusText(entry.newStatus)}
+                                      </Tag>
+                                    </>
+                                  ) : null}
+                                  {(entry.type === 'department_change' || entry.type === 'local_change') ? (
+                                    <>
+                                      <Tag className="select-none">{entry.oldValue || 'Não definido'}</Tag>
+                                      <span className="text-gray-400">→</span>
+                                      <Tag className="select-none">{entry.newValue || 'Não definido'}</Tag>
+                                    </>
+                                  ) : null}
                                 </div>
 
                                 <Typography.Text type="secondary">

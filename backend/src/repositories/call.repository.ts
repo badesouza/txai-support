@@ -1,21 +1,52 @@
-import { getFirestore, Collections } from '../lib/firebase';
+import { getPool } from '../lib/db';
+import { getPagination, parseImageUrls, toDate } from '../lib/sql-helpers';
 import { Call, CallCreateInput, CallUpdateInput, CallImage, CallImageCreateInput, PaginationResult, PaginationOptions } from '../types/models';
-import { CallMessage, CallAttachment, CallHistoryEntry, CallSubcollections } from '../types/firestore-models';
+import { CallMessage, CallAttachment, CallHistoryEntry } from '../types/call-models';
+import { CallMessageRepository } from './call-message.repository';
+import { CallAttachmentRepository } from './call-attachment.repository';
+import { CallHistoryRepository } from './call-history.repository';
 import { v4 as uuidv4 } from 'uuid';
-
-const db = getFirestore();
-const callsCollection = db.collection(Collections.CALLS);
-const imagesCollection = db.collection(Collections.CALL_IMAGES);
 
 export class CallRepository {
   /**
-   * Create a new call
+   * Create a new call.
    */
   static async create(data: CallCreateInput): Promise<Call> {
     const id = uuidv4();
     const now = new Date();
-    
-    const call: Call = {
+
+    await getPool().query(
+      `INSERT INTO calls (
+        id, title, description, status, priority, user_id, user_name, user_email, user_phone,
+        chamado_local_id, chamado_local_name, departamento_id, departamento_name, image_urls,
+        message_count, attachment_count, last_activity_at, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17, $18, $19
+      )`,
+      [
+        id,
+        data.title,
+        data.description,
+        data.status || 'OPEN',
+        data.priority || 'MEDIUM',
+        data.userId,
+        data.userName ?? null,
+        data.userEmail ?? null,
+        data.userPhone ?? null,
+        data.chamadoLocalId ?? null,
+        data.chamadoLocalName ?? null,
+        data.departamentoId ?? null,
+        data.departamentoName ?? null,
+        JSON.stringify([]),
+        0,
+        0,
+        now,
+        now,
+        now,
+      ]
+    );
+
+    return {
       id,
       title: data.title,
       description: data.description,
@@ -25,34 +56,32 @@ export class CallRepository {
       userName: data.userName,
       userEmail: data.userEmail,
       userPhone: data.userPhone,
+      chamadoLocalId: data.chamadoLocalId,
+      chamadoLocalName: data.chamadoLocalName,
+      departamentoId: data.departamentoId,
+      departamentoName: data.departamentoName,
       imageUrls: [],
-      // Initialize aggregated counts
       messageCount: 0,
       attachmentCount: 0,
       lastActivityAt: now,
       createdAt: now,
       updatedAt: now,
     };
-
-    await callsCollection.doc(id).set(call);
-    await this.incrementCounter(1);
-    
-    return call;
   }
 
   /**
-   * Find call by ID
+   * Find call by ID.
    */
   static async findById(id: string): Promise<Call | null> {
-    const doc = await callsCollection.doc(id).get();
-    if (!doc.exists) {
+    const result = await getPool().query('SELECT * FROM calls WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
       return null;
     }
-    return this.docToCall(doc);
+    return this.rowToCall(result.rows[0]);
   }
 
   /**
-   * Find call by ID with images
+   * Find call by ID with images.
    */
   static async findByIdWithImages(id: string): Promise<(Call & { images: CallImage[] }) | null> {
     const call = await this.findById(id);
@@ -65,486 +94,399 @@ export class CallRepository {
   }
 
   /**
-   * Find all calls with pagination
+   * Find all calls with pagination.
    */
   static async findMany(options: PaginationOptions & { search?: string; userId?: string } = {}): Promise<PaginationResult<Call & { images: CallImage[] }>> {
-    const { page = 1, limit = 10, orderBy = 'createdAt', orderDirection = 'desc', search, userId } = options;
+    const { page, limit, offset, orderBy, orderDirection } = getPagination(options);
+    const pool = getPool();
+    const params: unknown[] = [];
+    const conditions: string[] = [];
 
-    // Build base query
-    let query: FirebaseFirestore.Query = callsCollection;
-
-    // Filter by userId if provided
-    if (userId) {
-      query = query.where('userId', '==', userId);
+    if (options.userId) {
+      params.push(options.userId);
+      conditions.push(`user_id = $${params.length}`);
     }
 
-    // Order and limit
-    query = query.orderBy(orderBy, orderDirection);
+    if (options.search) {
+      const search = `%${options.search.toLowerCase()}%`;
+      params.push(search, search, search, search, `%${options.search}%`);
+      const base = params.length - 4;
+      conditions.push(`(
+        LOWER(title) LIKE $${base}
+        OR LOWER(description) LIKE $${base + 1}
+        OR LOWER(COALESCE(chamado_local_name, '')) LIKE $${base + 2}
+        OR LOWER(COALESCE(departamento_name, '')) LIKE $${base + 3}
+        OR id::text LIKE $${base + 4}
+      )`);
+    }
 
-    // Get total count (for the filtered query)
-    const countSnapshot = await query.count().get();
-    const total = countSnapshot.data().count;
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM calls ${whereClause}`,
+      params
+    );
+    const total = countResult.rows[0].count;
     const totalPages = Math.ceil(total / limit);
 
-    // Apply pagination
-    if (page > 1) {
-      const offset = (page - 1) * limit;
-      query = query.offset(offset);
-    }
-    query = query.limit(limit);
+    params.push(limit, offset);
+    const result = await pool.query(
+      `SELECT * FROM calls ${whereClause}
+       ORDER BY ${orderBy} ${orderDirection}
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
 
-    const snapshot = await query.get();
-    let calls = snapshot.docs.map(doc => this.docToCall(doc));
-
-    // Apply search filter (client-side for Firestore)
-    if (search) {
-      const searchLower = search.toLowerCase();
-      calls = calls.filter(call => 
-        call.title.toLowerCase().includes(searchLower) ||
-        call.description.toLowerCase().includes(searchLower) ||
-        call.id.includes(search)
-      );
-    }
-
-    // Get images for each call
+    const calls = result.rows.map((row) => this.rowToCall(row));
     const callsWithImages = await Promise.all(
-      calls.map(async (call) => {
-        const images = await this.getCallImages(call.id);
-        return { ...call, images };
-      })
+      calls.map(async (call) => ({
+        ...call,
+        images: await this.getCallImages(call.id),
+      }))
     );
 
     return {
       data: callsWithImages,
-      total: search ? callsWithImages.length : total, // Adjust total if search was applied
+      total,
       page,
       limit,
-      totalPages: search ? Math.ceil(callsWithImages.length / limit) : totalPages,
+      totalPages,
     };
   }
 
   /**
-   * Find calls by user ID
+   * Find calls by user ID.
    */
   static async findByUserId(userId: string, options: PaginationOptions = {}): Promise<PaginationResult<Call>> {
     return this.findMany({ ...options, userId });
   }
 
   /**
-   * Find active call for user (OPEN or IN_PROGRESS)
+   * Find active call for user (OPEN or IN_PROGRESS).
    */
   static async findActiveCallForUser(userId: string): Promise<Call | null> {
-    const snapshot = await callsCollection
-      .where('userId', '==', userId)
-      .where('status', 'in', ['OPEN', 'IN_PROGRESS'])
-      .orderBy('createdAt', 'desc')
-      .limit(1)
-      .get();
-
-    if (snapshot.empty) {
+    const result = await getPool().query(
+      `SELECT * FROM calls
+       WHERE user_id = $1 AND status IN ('OPEN', 'IN_PROGRESS')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId]
+    );
+    if (result.rowCount === 0) {
       return null;
     }
-
-    return this.docToCall(snapshot.docs[0]);
+    return this.rowToCall(result.rows[0]);
   }
 
   /**
-   * Update call
+   * Update call.
    */
   static async update(id: string, data: CallUpdateInput): Promise<Call | null> {
-    const docRef = callsCollection.doc(id);
-    const doc = await docRef.get();
-    
-    if (!doc.exists) {
+    const existing = await this.findById(id);
+    if (!existing) {
       return null;
     }
 
-    const updateData = {
+    const now = new Date();
+    const updated: Call = {
+      ...existing,
       ...data,
-      updatedAt: new Date(),
+      departamentoId: data.departamentoId === null ? undefined : data.departamentoId ?? existing.departamentoId,
+      departamentoName: data.departamentoName === null ? undefined : data.departamentoName ?? existing.departamentoName,
+      updatedAt: now,
     };
 
-    await docRef.update(updateData);
-    
-    const updated = await docRef.get();
-    return this.docToCall(updated);
+    await getPool().query(
+      `UPDATE calls SET
+        title = $2,
+        description = $3,
+        status = $4,
+        priority = $5,
+        chamado_local_id = $6,
+        chamado_local_name = $7,
+        departamento_id = $8,
+        departamento_name = $9,
+        updated_at = $10
+       WHERE id = $1`,
+      [
+        id,
+        updated.title,
+        updated.description,
+        updated.status,
+        updated.priority,
+        updated.chamadoLocalId ?? null,
+        updated.chamadoLocalName ?? null,
+        updated.departamentoId ?? null,
+        updated.departamentoName ?? null,
+        now,
+      ]
+    );
+
+    return updated;
   }
 
   /**
-   * Delete call and its images
+   * Delete call and related data.
    */
   static async delete(id: string): Promise<boolean> {
-    const docRef = callsCollection.doc(id);
-    const doc = await docRef.get();
-    
-    if (!doc.exists) {
-      return false;
-    }
-
-    // Delete associated images
-    const imagesSnapshot = await imagesCollection
-      .where('callId', '==', id)
-      .get();
-    
-    const batch = db.batch();
-    imagesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-    batch.delete(docRef);
-    await batch.commit();
-
-    await this.incrementCounter(-1);
-    
-    return true;
+    const result = await getPool().query('DELETE FROM calls WHERE id = $1', [id]);
+    return (result.rowCount ?? 0) > 0;
   }
 
   /**
-   * Add image to call
+   * Add image to call.
    */
   static async addImage(data: CallImageCreateInput): Promise<CallImage> {
     const id = uuidv4();
     const now = new Date();
-    
-    const image: CallImage = {
+
+    await getPool().query(
+      `INSERT INTO call_images (id, filename, path, call_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, data.filename, data.path, data.callId, now, now]
+    );
+
+    const call = await this.findById(data.callId);
+    if (call) {
+      const imageUrls = [...(call.imageUrls || []), data.path];
+      await getPool().query(
+        'UPDATE calls SET image_urls = $2::jsonb, updated_at = $3 WHERE id = $1',
+        [data.callId, JSON.stringify(imageUrls), now]
+      );
+    }
+
+    return {
       id,
-      ...data,
+      filename: data.filename,
+      path: data.path,
+      callId: data.callId,
       createdAt: now,
       updatedAt: now,
     };
-
-    await imagesCollection.doc(id).set(image);
-    
-    // Update call's imageUrls array
-    const callRef = callsCollection.doc(data.callId);
-    const callDoc = await callRef.get();
-    if (callDoc.exists) {
-      const currentUrls = callDoc.data()?.imageUrls || [];
-      await callRef.update({
-        imageUrls: [...currentUrls, data.path],
-        updatedAt: now,
-      });
-    }
-    
-    return image;
   }
 
   /**
-   * Get images for a call
+   * Get images for a call.
    */
   static async getCallImages(callId: string): Promise<CallImage[]> {
-    const snapshot = await imagesCollection
-      .where('callId', '==', callId)
-      .orderBy('createdAt', 'asc')
-      .get();
-    
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      filename: doc.data().filename,
-      path: doc.data().path,
-      callId: doc.data().callId,
-      createdAt: doc.data().createdAt?.toDate?.() || new Date(doc.data().createdAt),
-      updatedAt: doc.data().updatedAt?.toDate?.() || new Date(doc.data().updatedAt),
+    const result = await getPool().query(
+      'SELECT * FROM call_images WHERE call_id = $1 ORDER BY created_at ASC',
+      [callId]
+    );
+
+    return result.rows.map((row) => ({
+      id: String(row.id),
+      filename: String(row.filename),
+      path: String(row.path),
+      callId: String(row.call_id),
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
     }));
   }
 
   /**
-   * Delete image
+   * Delete image.
    */
   static async deleteImage(imageId: string): Promise<CallImage | null> {
-    const docRef = imagesCollection.doc(imageId);
-    const doc = await docRef.get();
-    
-    if (!doc.exists) {
+    const result = await getPool().query('SELECT * FROM call_images WHERE id = $1', [imageId]);
+    if (result.rowCount === 0) {
       return null;
     }
 
+    const row = result.rows[0];
     const image: CallImage = {
-      id: doc.id,
-      filename: doc.data()!.filename,
-      path: doc.data()!.path,
-      callId: doc.data()!.callId,
-      createdAt: doc.data()!.createdAt?.toDate?.() || new Date(doc.data()!.createdAt),
-      updatedAt: doc.data()!.updatedAt?.toDate?.() || new Date(doc.data()!.updatedAt),
+      id: String(row.id),
+      filename: String(row.filename),
+      path: String(row.path),
+      callId: String(row.call_id),
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
     };
 
-    await docRef.delete();
-    
-    // Update call's imageUrls array
-    const callRef = callsCollection.doc(image.callId);
-    const callDoc = await callRef.get();
-    if (callDoc.exists) {
-      const currentUrls = callDoc.data()?.imageUrls || [];
-      await callRef.update({
-        imageUrls: currentUrls.filter((url: string) => url !== image.path),
-        updatedAt: new Date(),
-      });
+    await getPool().query('DELETE FROM call_images WHERE id = $1', [imageId]);
+
+    const call = await this.findById(image.callId);
+    if (call) {
+      const imageUrls = (call.imageUrls || []).filter((url) => url !== image.path);
+      await getPool().query(
+        'UPDATE calls SET image_urls = $2::jsonb, updated_at = $3 WHERE id = $1',
+        [image.callId, JSON.stringify(imageUrls), new Date()]
+      );
     }
-    
+
     return image;
   }
 
   /**
-   * Find image by ID
+   * Find image by ID.
    */
   static async findImageById(imageId: string): Promise<CallImage | null> {
-    const doc = await imagesCollection.doc(imageId).get();
-    if (!doc.exists) {
+    const result = await getPool().query('SELECT * FROM call_images WHERE id = $1', [imageId]);
+    if (result.rowCount === 0) {
       return null;
     }
+
+    const row = result.rows[0];
     return {
-      id: doc.id,
-      filename: doc.data()!.filename,
-      path: doc.data()!.path,
-      callId: doc.data()!.callId,
-      createdAt: doc.data()!.createdAt?.toDate?.() || new Date(doc.data()!.createdAt),
-      updatedAt: doc.data()!.updatedAt?.toDate?.() || new Date(doc.data()!.updatedAt),
+      id: String(row.id),
+      filename: String(row.filename),
+      path: String(row.path),
+      callId: String(row.call_id),
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
     };
   }
 
   /**
-   * Get total count
+   * Get total count.
    */
   static async getCount(): Promise<number> {
-    const counterDoc = await db.collection(Collections.COUNTERS).doc('calls').get();
-    if (!counterDoc.exists) {
-      const snapshot = await callsCollection.count().get();
-      const count = snapshot.data().count;
-      await db.collection(Collections.COUNTERS).doc('calls').set({ count });
-      return count;
-    }
-    return counterDoc.data()?.count || 0;
+    const result = await getPool().query('SELECT COUNT(*)::int AS count FROM calls');
+    return result.rows[0].count;
   }
 
   /**
-   * Increment counter
-   */
-  private static async incrementCounter(delta: number): Promise<void> {
-    const counterRef = db.collection(Collections.COUNTERS).doc('calls');
-    await db.runTransaction(async (transaction) => {
-      const counterDoc = await transaction.get(counterRef);
-      const currentCount = counterDoc.exists ? (counterDoc.data()?.count || 0) : 0;
-      transaction.set(counterRef, { count: Math.max(0, currentCount + delta) });
-    });
-  }
-
-  /**
-   * Convert Firestore document to Call
-   */
-  private static docToCall(doc: FirebaseFirestore.DocumentSnapshot): Call {
-    const data = doc.data()!;
-    return {
-      id: doc.id,
-      title: data.title,
-      description: data.description,
-      status: data.status,
-      priority: data.priority,
-      userId: data.userId,
-      userName: data.userName,
-      userEmail: data.userEmail,
-      userPhone: data.userPhone,
-      imageUrls: data.imageUrls || [],
-      messageCount: data.messageCount || 0,
-      attachmentCount: data.attachmentCount || 0,
-      lastActivityAt: data.lastActivityAt?.toDate?.() || data.updatedAt?.toDate?.() || new Date(),
-      lastMessagePreview: data.lastMessagePreview,
-      createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
-      updatedAt: data.updatedAt?.toDate?.() || new Date(data.updatedAt),
-    };
-  }
-
-  // =============================================================================
-  // Subcollection Management Methods
-  // =============================================================================
-
-  /**
-   * Get messages subcollection for a call
-   */
-  static getMessagesCollection(callId: string) {
-    return callsCollection.doc(callId).collection(CallSubcollections.MESSAGES);
-  }
-
-  /**
-   * Get attachments subcollection for a call
-   */
-  static getAttachmentsCollection(callId: string) {
-    return callsCollection.doc(callId).collection(CallSubcollections.ATTACHMENTS);
-  }
-
-  /**
-   * Get history subcollection for a call
-   */
-  static getHistoryCollection(callId: string) {
-    return callsCollection.doc(callId).collection(CallSubcollections.HISTORY);
-  }
-
-  /**
-   * Increment message count and update last activity
+   * Increment message count and update last activity.
    */
   static async incrementMessageCount(callId: string, messagePreview?: string): Promise<void> {
-    const docRef = callsCollection.doc(callId);
     const now = new Date();
-    
-    await db.runTransaction(async (transaction) => {
-      const doc = await transaction.get(docRef);
-      if (!doc.exists) return;
-      
-      const currentCount = doc.data()?.messageCount || 0;
-      const updateData: Record<string, unknown> = {
-        messageCount: currentCount + 1,
-        lastActivityAt: now,
-        updatedAt: now,
-      };
-      
-      if (messagePreview) {
-        updateData.lastMessagePreview = messagePreview.substring(0, 100);
-      }
-      
-      transaction.update(docRef, updateData);
-    });
+    const preview = messagePreview ? messagePreview.substring(0, 100) : null;
+
+    if (preview) {
+      await getPool().query(
+        `UPDATE calls
+         SET message_count = message_count + 1,
+             last_activity_at = $2,
+             last_message_preview = $3,
+             updated_at = $2
+         WHERE id = $1`,
+        [callId, now, preview]
+      );
+      return;
+    }
+
+    await getPool().query(
+      `UPDATE calls
+       SET message_count = message_count + 1,
+           last_activity_at = $2,
+           updated_at = $2
+       WHERE id = $1`,
+      [callId, now]
+    );
   }
 
   /**
-   * Decrement message count
+   * Decrement message count.
    */
   static async decrementMessageCount(callId: string): Promise<void> {
-    const docRef = callsCollection.doc(callId);
-    
-    await db.runTransaction(async (transaction) => {
-      const doc = await transaction.get(docRef);
-      if (!doc.exists) return;
-      
-      const currentCount = doc.data()?.messageCount || 0;
-      transaction.update(docRef, {
-        messageCount: Math.max(0, currentCount - 1),
-        updatedAt: new Date(),
-      });
-    });
+    await getPool().query(
+      `UPDATE calls
+       SET message_count = GREATEST(0, message_count - 1),
+           updated_at = $2
+       WHERE id = $1`,
+      [callId, new Date()]
+    );
   }
 
   /**
-   * Increment attachment count
+   * Increment attachment count.
    */
   static async incrementAttachmentCount(callId: string): Promise<void> {
-    const docRef = callsCollection.doc(callId);
     const now = new Date();
-    
-    await db.runTransaction(async (transaction) => {
-      const doc = await transaction.get(docRef);
-      if (!doc.exists) return;
-      
-      const currentCount = doc.data()?.attachmentCount || 0;
-      transaction.update(docRef, {
-        attachmentCount: currentCount + 1,
-        lastActivityAt: now,
-        updatedAt: now,
-      });
-    });
+    await getPool().query(
+      `UPDATE calls
+       SET attachment_count = attachment_count + 1,
+           last_activity_at = $2,
+           updated_at = $2
+       WHERE id = $1`,
+      [callId, now]
+    );
   }
 
   /**
-   * Decrement attachment count
+   * Decrement attachment count.
    */
   static async decrementAttachmentCount(callId: string): Promise<void> {
-    const docRef = callsCollection.doc(callId);
-    
-    await db.runTransaction(async (transaction) => {
-      const doc = await transaction.get(docRef);
-      if (!doc.exists) return;
-      
-      const currentCount = doc.data()?.attachmentCount || 0;
-      transaction.update(docRef, {
-        attachmentCount: Math.max(0, currentCount - 1),
-        updatedAt: new Date(),
-      });
-    });
+    await getPool().query(
+      `UPDATE calls
+       SET attachment_count = GREATEST(0, attachment_count - 1),
+           updated_at = $2
+       WHERE id = $1`,
+      [callId, new Date()]
+    );
   }
 
   /**
-   * Update last activity timestamp
+   * Update last activity timestamp.
    */
   static async updateLastActivity(callId: string, messagePreview?: string): Promise<void> {
-    const docRef = callsCollection.doc(callId);
     const now = new Date();
-    
-    const updateData: Record<string, unknown> = {
-      lastActivityAt: now,
-      updatedAt: now,
-    };
-    
-    if (messagePreview) {
-      updateData.lastMessagePreview = messagePreview.substring(0, 100);
+    const preview = messagePreview ? messagePreview.substring(0, 100) : null;
+
+    if (preview) {
+      await getPool().query(
+        `UPDATE calls
+         SET last_activity_at = $2,
+             last_message_preview = $3,
+             updated_at = $2
+         WHERE id = $1`,
+        [callId, now, preview]
+      );
+      return;
     }
-    
-    await docRef.update(updateData);
+
+    await getPool().query(
+      'UPDATE calls SET last_activity_at = $2, updated_at = $2 WHERE id = $1',
+      [callId, now]
+    );
   }
 
   /**
-   * Find call by ID with all subcollection data (messages, attachments, history)
+   * Find call by ID with all related data.
    */
-  static async findByIdWithDetails(id: string): Promise<(Call & { 
-    images: CallImage[]; 
-    messages: CallMessage[]; 
-    attachments: CallAttachment[]; 
-    history: CallHistoryEntry[] 
+  static async findByIdWithDetails(id: string): Promise<(Call & {
+    images: CallImage[];
+    messages: CallMessage[];
+    attachments: CallAttachment[];
+    history: CallHistoryEntry[];
   }) | null> {
     const call = await this.findById(id);
     if (!call) {
       return null;
     }
 
-    // Fetch all subcollections in parallel
-    const [images, messagesSnapshot, attachmentsSnapshot, historySnapshot] = await Promise.all([
+    const [images, messages, attachments, history] = await Promise.all([
       this.getCallImages(id),
-      this.getMessagesCollection(id).orderBy('createdAt', 'asc').get(),
-      this.getAttachmentsCollection(id).orderBy('createdAt', 'asc').get(),
-      this.getHistoryCollection(id).orderBy('createdAt', 'asc').get(),
+      CallMessageRepository.findByCallId(id),
+      CallAttachmentRepository.findByCallId(id),
+      CallHistoryRepository.findByCallId(id),
     ]);
-
-    const messages: CallMessage[] = messagesSnapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        content: data.content,
-        messageType: data.messageType,
-        source: data.source,
-        sessionName: data.sessionName,
-        direction: data.direction,
-        senderPhone: data.senderPhone,
-        senderName: data.senderName,
-        attachmentId: data.attachmentId,
-        externalMessageId: data.externalMessageId,
-        createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
-      };
-    });
-
-    const attachments: CallAttachment[] = attachmentsSnapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        filename: data.filename,
-        path: data.path,
-        mimetype: data.mimetype,
-        size: data.size,
-        source: data.source,
-        sessionName: data.sessionName,
-        messageId: data.messageId,
-        createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
-      };
-    });
-
-    const history: CallHistoryEntry[] = historySnapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        type: data.type,
-        oldStatus: data.oldStatus,
-        newStatus: data.newStatus,
-        userId: data.userId,
-        userName: data.userName,
-        note: data.note,
-        createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
-      };
-    });
 
     return { ...call, images, messages, attachments, history };
   }
-}
 
+  private static rowToCall(row: Record<string, unknown>): Call {
+    return {
+      id: String(row.id),
+      title: String(row.title),
+      description: String(row.description),
+      status: String(row.status),
+      priority: String(row.priority),
+      userId: String(row.user_id),
+      userName: row.user_name ? String(row.user_name) : undefined,
+      userEmail: row.user_email ? String(row.user_email) : undefined,
+      userPhone: row.user_phone ? String(row.user_phone) : undefined,
+      chamadoLocalId: row.chamado_local_id ? String(row.chamado_local_id) : undefined,
+      chamadoLocalName: row.chamado_local_name ? String(row.chamado_local_name) : undefined,
+      departamentoId: row.departamento_id ? String(row.departamento_id) : undefined,
+      departamentoName: row.departamento_name ? String(row.departamento_name) : undefined,
+      imageUrls: parseImageUrls(row.image_urls),
+      messageCount: Number(row.message_count ?? 0),
+      attachmentCount: Number(row.attachment_count ?? 0),
+      lastActivityAt: toDate(row.last_activity_at ?? row.updated_at),
+      lastMessagePreview: row.last_message_preview ? String(row.last_message_preview) : undefined,
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
+    };
+  }
+}

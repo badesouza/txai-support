@@ -24,46 +24,21 @@ log_warn() { echo -e "${YELLOW}==>${NC} $*"; }
 log_error() { echo -e "${RED}==>${NC} $*"; }
 
 # Configuration
-FRONTEND_URL="${FRONTEND_URL:-}"
-BACKEND_URL="${BACKEND_URL:-}"
+FRONTEND_URL="${FRONTEND_URL:-http://localhost:8081}"
+BACKEND_URL="${BACKEND_URL:-http://localhost:3001}"
 TEST_USER="${TEST_USER:-admin@example.com}"
 TEST_PASSWORD="${TEST_PASSWORD:-admin123}"
-
-# Try to get URLs from terraform outputs
-if [ -z "${FRONTEND_URL}" ] || [ -z "${BACKEND_URL}" ]; then
-  TERRAFORM_DIR="${REPO_ROOT}/infra/terraform/environments/dev"
-
-  if [ -d "${TERRAFORM_DIR}" ]; then
-    cd "${TERRAFORM_DIR}"
-
-    if [ -z "${BACKEND_URL}" ]; then
-      BACKEND_URL=$(tofu output -raw backend_cloud_run_url 2>/dev/null || echo "")
-    fi
-
-    if [ -z "${FRONTEND_URL}" ]; then
-      FRONTEND_URL=$(tofu output -raw firebase_hosting_url 2>/dev/null || echo "")
-    fi
-  fi
-
-  # Fallback to .firebaserc
-  if [ -z "${FRONTEND_URL}" ] && [ -f "${REPO_ROOT}/.firebaserc" ]; then
-    FIREBASE_PROJECT=$(jq -r '.projects.default // empty' "${REPO_ROOT}/.firebaserc" 2>/dev/null || echo "")
-    if [ -n "${FIREBASE_PROJECT}" ]; then
-      FRONTEND_URL="https://${FIREBASE_PROJECT}.web.app"
-    fi
-  fi
-fi
 
 # Validate URLs
 if [ -z "${FRONTEND_URL}" ]; then
   log_error "FRONTEND_URL is required"
-  echo "Set FRONTEND_URL environment variable or ensure terraform is initialized"
+  echo "Set FRONTEND_URL environment variable"
   exit 1
 fi
 
 if [ -z "${BACKEND_URL}" ]; then
   log_error "BACKEND_URL is required"
-  echo "Set BACKEND_URL environment variable or ensure terraform is initialized"
+  echo "Set BACKEND_URL environment variable"
   exit 1
 fi
 

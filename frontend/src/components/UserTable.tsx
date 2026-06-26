@@ -6,6 +6,8 @@ import type { ColumnType } from 'antd/es/table';
 import api from '../config/axios';
 import { API_CONFIG } from '../config/api';
 import Swal from 'sweetalert2';
+import { showSuccessToast } from '../utils/toast';
+import { DELETE_ICON_BUTTON_CLASS } from '../constants/ui';
 import { formatPhoneForDisplay } from '../utils/phoneFormatter';
 
 interface User {
@@ -91,12 +93,7 @@ export default function UserTable() {
     if (result.isConfirmed) {
       try {
         await api.delete(API_CONFIG.ENDPOINTS.USER_BY_ID(userId));
-        Swal.fire({
-          title: 'Excluído!',
-          text: 'Usuário excluído com sucesso.',
-          icon: 'success',
-          confirmButtonText: 'OK'
-        });
+        showSuccessToast({ title: 'Excluído!', text: 'Usuário excluído com sucesso.' });
         fetchUsers();
       } catch (error) {
         console.error('Erro ao excluir usuário:', error);
@@ -153,9 +150,9 @@ export default function UserTable() {
           />
           <Button
             type="link"
-            danger
             icon={<DeleteOutlined />}
             onClick={() => handleDelete(record.id)}
+            className={DELETE_ICON_BUTTON_CLASS}
           />
         </Space>
       ),
@@ -163,8 +160,8 @@ export default function UserTable() {
   ];
 
   return (
-    <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
-      <div className="p-4 bg-white dark:bg-gray-800">
+    <div>
+      <div className="data-table-toolbar">
         <Input.Search
           placeholder="Buscar usuários..."
           value={searchTerm}
@@ -173,28 +170,28 @@ export default function UserTable() {
             setCurrentPage(1);
           }}
           allowClear
-          className="mb-4"
-          style={{ maxWidth: 400 }}
-        />
-        
-        <Table
-          columns={columns}
-          dataSource={users}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: currentPage,
-            pageSize: itemsPerPage,
-            total: totalItems,
-            onChange: (page) => setCurrentPage(page),
-            showSizeChanger: false,
-            showTotal: (total, range) => `Mostrando ${range[0]} a ${range[1]} de ${total} resultados`,
-          }}
-          locale={{
-            emptyText: 'Nenhum usuário encontrado',
-          }}
+          className="data-table-search"
         />
       </div>
+
+      <Table
+        columns={columns}
+        dataSource={users}
+        rowKey="id"
+        loading={loading}
+        size="middle"
+        pagination={{
+          current: currentPage,
+          pageSize: itemsPerPage,
+          total: totalItems,
+          onChange: (page) => setCurrentPage(page),
+          showSizeChanger: false,
+          showTotal: (total, range) => `${range[0]}-${range[1]} de ${total}`,
+        }}
+        locale={{
+          emptyText: 'Nenhum usuário encontrado',
+        }}
+      />
     </div>
   );
 }

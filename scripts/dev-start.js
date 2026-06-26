@@ -4,7 +4,7 @@
  * Detects OS and runs the appropriate script (bash for Mac/Linux, PowerShell for Windows)
  */
 
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -20,13 +20,15 @@ if (isWindows) {
     process.exit(1);
   }
   
-  // Run PowerShell script
+  // Run PowerShell script - use spawn for better stream handling
   const ps = spawn('powershell.exe', [
     '-ExecutionPolicy', 'Bypass',
+    '-NoProfile',
     '-File', scriptPath
   ], {
+    cwd: process.cwd(),
     stdio: 'inherit',
-    shell: true
+    shell: false
   });
   
   ps.on('error', (error) => {
@@ -56,9 +58,9 @@ if (isWindows) {
   }
   
   // Run bash script
-  const bash = spawn('bash', [scriptPath], {
-    stdio: 'inherit',
-    shell: false
+  const bash = exec(`bash "${scriptPath}"`, {
+    cwd: process.cwd(),
+    stdio: 'inherit'
   });
   
   bash.on('error', (error) => {

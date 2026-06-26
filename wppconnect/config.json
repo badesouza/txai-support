@@ -3,7 +3,7 @@
   "host": "http://localhost",
   "port": "21465",
   "customUserDataDir": "./userDataDir/",
-  "startAllSession": true,
+  "startAllSession": false,
   "maxListeners": 15,
   "webhook": {
     "url": null,
@@ -17,13 +17,42 @@
     "diasToArchive": 45
   },
   "log": {
-    "level": "error",
+    "level": "info",
     "logger": ["console"]
   },
   "createOptions": {
-    "autoClose": 120000,
-    "browserArgs": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    "autoClose": 0,
+    "deviceSyncTimeout": 0,
+    "logQR": true,
+    "debug": true,
+    "headless": true,
+    "whatsappVersion": "2.3000.1025890479",
+    "browserArgs": [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--no-first-run",
+      "--no-zygote",
+      "--disable-web-security",
+      "--aggressive-cache-discard",
+      "--disable-cache",
+      "--disable-application-cache",
+      "--disable-offline-load-stale-cache",
+      "--disk-cache-size=0",
+      "--disable-background-networking",
+      "--disable-default-apps",
+      "--disable-extensions",
+      "--disable-sync",
+      "--disable-translate",
+      "--hide-scrollbars",
+      "--metrics-recording-only",
+      "--mute-audio",
+      "--safebrowsing-disable-auto-update",
+      "--ignore-certificate-errors",
+      "--ignore-ssl-errors",
+      "--ignore-certificate-errors-spki-list"
+    ]
   }
 }
-
-

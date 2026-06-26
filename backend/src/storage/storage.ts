@@ -1,5 +1,5 @@
+import fs from 'fs/promises';
 import path from 'path';
-import { Storage } from '@google-cloud/storage';
 
 export type SaveBufferOptions = {
   buffer: Buffer;
@@ -12,120 +12,64 @@ export type SaveResult = {
   relativePath: string;
 };
 
-const signedUrlTtlSecondsRaw = Number(process.env.GCS_SIGNED_URL_TTL_SECONDS ?? 900);
-const signedUrlTtlSeconds = Number.isFinite(signedUrlTtlSecondsRaw) ? signedUrlTtlSecondsRaw : 900;
-const gcsBucketName = process.env.GCS_BUCKET ?? '';
-const gcsUploadsPrefix = (process.env.GCS_UPLOADS_PREFIX ?? 'uploads').replace(/^\//, '').replace(/\/$/, '');
+// Public prefix used both for stored paths and the static route (see server.ts).
+const uploadsPrefix = (process.env.UPLOADS_PREFIX ?? 'uploads').replace(/^\//, '').replace(/\/$/, '');
+const uploadsDir = process.env.UPLOADS_DIR
+  ? path.resolve(process.env.UPLOADS_DIR)
+  : path.join(process.cwd(), uploadsPrefix);
+const publicBaseUrl = (process.env.PUBLIC_BASE_URL ?? 'http://localhost:3001').replace(/\/$/, '');
 
-// Emulator detection - @google-cloud/storage SDK natively supports STORAGE_EMULATOR_HOST
-const isEmulator = !!process.env.STORAGE_EMULATOR_HOST;
-const gcsPublicHost = process.env.GCS_PUBLIC_HOST || '';
-
-class GcsStorageProvider {
-  private storage: Storage;
-  private bucket: string;
+/**
+ * Local filesystem storage provider.
+ * Files are written under UPLOADS_DIR and served by the backend at /<prefix>.
+ */
+class LocalStorageProvider {
+  private dir: string;
   private prefix: string;
-  private signedUrlTtl: number;
 
   constructor() {
-    const projectId = process.env.GCS_PROJECT_ID || 'local-dev';
-    const credentialsRaw = process.env.GCS_CREDENTIALS_JSON;
-    
-    // The @google-cloud/storage SDK automatically uses STORAGE_EMULATOR_HOST if set!
-    // No code changes needed for emulator - just set the env var
-    let credentials: Record<string, unknown> | undefined;
-    
-    // Only parse credentials if not using emulator
-    if (!isEmulator && credentialsRaw) {
-      try {
-        credentials = JSON.parse(credentialsRaw);
-      } catch (error) {
-        throw new Error('GCS_CREDENTIALS_JSON inválido');
-      }
-    }
-    
-    this.storage = new Storage({ 
-      projectId,
-      // Credentials not needed for emulator
-      credentials: isEmulator ? undefined : credentials,
-    });
-    
-    this.bucket = gcsBucketName;
-    this.prefix = gcsUploadsPrefix;
-    this.signedUrlTtl = signedUrlTtlSeconds;
-    
-    if (isEmulator) {
-      console.log(`📦 GCS Storage using emulator: ${process.env.STORAGE_EMULATOR_HOST}`);
-    }
+    this.dir = uploadsDir;
+    this.prefix = uploadsPrefix;
+    console.log(`📁 Local storage directory: ${this.dir}`);
   }
 
-  private ensureBucket(): string {
-    if (!this.bucket) {
-      throw new Error('GCS_BUCKET não configurado');
-    }
-    return this.bucket;
-  }
-
-  private objectNameFromPath(relativePath: string): string {
-    const cleaned = relativePath.replace(/^\//, '');
-    return cleaned.startsWith(`${this.prefix}/`)
-      ? cleaned
-      : `${this.prefix}/${path.basename(cleaned)}`;
+  private fileNameFromPath(relativePath: string): string {
+    return path.basename(relativePath);
   }
 
   async saveBuffer(options: SaveBufferOptions): Promise<SaveResult> {
-    const bucketName = this.ensureBucket();
-    const objectName = `${this.prefix}/${options.filename}`;
-    const bucket = this.storage.bucket(bucketName);
-    const file = bucket.file(objectName);
+    await fs.mkdir(this.dir, { recursive: true });
+    const safeName = path.basename(options.filename);
+    const absolutePath = path.join(this.dir, safeName);
 
-    await file.save(options.buffer, {
-      resumable: false,
-      contentType: options.contentType,
-      predefinedAcl: undefined,
-    });
+    await fs.writeFile(absolutePath, options.buffer);
 
     return {
-      absolutePath: `gs://${bucketName}/${objectName}`,
-      relativePath: `/${objectName}`,
+      absolutePath,
+      relativePath: `/${this.prefix}/${safeName}`,
     };
   }
 
   async deleteFile(relativePath: string): Promise<void> {
-    const bucketName = this.ensureBucket();
-    const bucket = this.storage.bucket(bucketName);
-    const objectName = this.objectNameFromPath(relativePath);
-    await bucket.file(objectName).delete({ ignoreNotFound: true });
+    const safeName = this.fileNameFromPath(relativePath);
+    await fs.rm(path.join(this.dir, safeName), { force: true });
   }
 
   async getFileUrl(relativePath: string): Promise<string> {
-    const bucketName = this.ensureBucket();
-    const objectName = this.objectNameFromPath(relativePath);
-    
-    // For emulator: use public URL directly (no signing needed/supported properly)
-    if (isEmulator && gcsPublicHost) {
-      return `${gcsPublicHost}/${bucketName}/${objectName}`;
-    }
-    
-    // For production: generate signed URL
-    const bucket = this.storage.bucket(bucketName);
-    const [url] = await bucket.file(objectName).getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + this.signedUrlTtl * 1000,
-    });
-    return url;
+    const safeName = this.fileNameFromPath(relativePath);
+    return `${publicBaseUrl}/${this.prefix}/${safeName}`;
   }
 }
 
-// GCS is the only supported storage driver
-// Works with BOTH:
-// - fake-gcs-server (when STORAGE_EMULATOR_HOST is set) for local development
-// - Real GCS (when STORAGE_EMULATOR_HOST is not set) for production
-const provider = new GcsStorageProvider();
+const provider = new LocalStorageProvider();
 
 export const storage = {
   saveBuffer: (options: SaveBufferOptions) => provider.saveBuffer(options),
   deleteFile: (relativePath: string) => provider.deleteFile(relativePath),
   getFileUrl: (relativePath: string) => provider.getFileUrl(relativePath),
+};
+
+export const uploadsConfig = {
+  dir: uploadsDir,
+  prefix: uploadsPrefix,
 };

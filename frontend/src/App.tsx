@@ -9,13 +9,21 @@ import EditUser from './pages/EditUser';
 import Calls from './pages/Calls';
 import NewCall from './pages/NewCall';
 import EditCall from './pages/EditCall';
+import ChamadoLocais from './pages/ChamadoLocais';
+import NewChamadoLocal from './pages/NewChamadoLocal';
+import EditChamadoLocal from './pages/EditChamadoLocal';
+import Departamentos from './pages/Departamentos';
+import NewDepartamento from './pages/NewDepartamento';
+import EditDepartamento from './pages/EditDepartamento';
 import WhatsApp from './pages/WhatsApp';
 import Reports from './pages/Reports';
 import PrivateRoute from './components/PrivateRoute';
+import ToastProvider from './components/toast/ToastProvider';
 
 const App: React.FC = () => {
     return (
         <Router>
+            <ToastProvider>
             <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
@@ -76,6 +84,54 @@ const App: React.FC = () => {
                     }
                 />
                 <Route
+                    path="/chamado-locais"
+                    element={
+                        <PrivateRoute>
+                            <ChamadoLocais />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
+                    path="/chamado-locais/new"
+                    element={
+                        <PrivateRoute>
+                            <NewChamadoLocal />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
+                    path="/chamado-locais/edit/:id"
+                    element={
+                        <PrivateRoute>
+                            <EditChamadoLocal />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
+                    path="/departamentos"
+                    element={
+                        <PrivateRoute>
+                            <Departamentos />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
+                    path="/departamentos/new"
+                    element={
+                        <PrivateRoute>
+                            <NewDepartamento />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
+                    path="/departamentos/edit/:id"
+                    element={
+                        <PrivateRoute>
+                            <EditDepartamento />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
                     path="/whatsapp"
                     element={
                         <PrivateRoute>
@@ -93,6 +149,7 @@ const App: React.FC = () => {
                 />
                 <Route path="/" element={<Navigate to="/login" replace />} />
             </Routes>
+            </ToastProvider>
         </Router>
     );
 };

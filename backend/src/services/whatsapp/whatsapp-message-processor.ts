@@ -3,7 +3,9 @@ import {
   UserRepository, 
   CallMessageRepository,
   CallAttachmentRepository,
+  ChamadoLocalRepository,
 } from '../../repositories';
+import type { ChamadoLocal } from '../../types/models';
 import { storage } from '../../storage/storage';
 import type { WhatsAppMessage } from './whatsapp.types';
 
@@ -19,7 +21,7 @@ interface WhatsAppMessageProcessorDeps {
 }
 
 export class WhatsAppMessageProcessor {
-  private readonly pendingCallLocations: Map<string, { userId: string; timestamp: number }> = new Map();
+  private readonly pendingCallLocations: Map<string, { userId: string; timestamp: number; options: ChamadoLocal[] }> = new Map();
   private readonly sessionName: string;
 
   constructor(private readonly deps: WhatsAppMessageProcessorDeps) {
@@ -302,25 +304,48 @@ export class WhatsAppMessageProcessor {
   /** Start the "create call" flow by asking for the location. */
   private async initiateCallCreationFlow(phone: string, userId: string): Promise<void> {
     try {
-      this.pendingCallLocations.set(phone, { userId, timestamp: Date.now() });
-      await this.sendAutoReply(phone, 'Qual o local do chamado?');
-      console.log('✅ Call creation flow initiated, awaiting location');
+      const options = await ChamadoLocalRepository.findAll();
+
+      if (options.length === 0) {
+        await this.sendAutoReply(phone, 'Nenhum local cadastrado. Entre em contato com o suporte.');
+        console.log('ℹ️ Call creation aborted: no chamado locais registered');
+        return;
+      }
+
+      this.pendingCallLocations.set(phone, { userId, timestamp: Date.now(), options });
+      await this.sendAutoReply(phone, this.buildLocationMenuMessage(options));
+      console.log('✅ Call creation flow initiated, awaiting location selection');
     } catch (error) {
       console.error('❌ Error initiating call creation flow:', error);
     }
   }
 
-  /** Finalize call creation with the given location. */
-  private async handleCallLocationResponse(phone: string, location: string, userId: string): Promise<void> {
+  /** Build numbered menu message for location selection. */
+  private buildLocationMenuMessage(options: ChamadoLocal[]): string {
+    const lines = options.map((option, index) => `${index + 1}. ${option.name}`);
+    return `Qual o local do chamado?\n${lines.join('\n')}\nDigite o número da opção.`;
+  }
+
+  /** Finalize call creation with the selected location option. */
+  private async handleCallLocationResponse(phone: string, response: string, userId: string): Promise<void> {
     try {
       const pendingData = this.pendingCallLocations.get(phone);
       if (!pendingData) return;
+
+      const selectedIndex = parseInt(response.trim(), 10) - 1;
+      const selectedLocal = pendingData.options[selectedIndex];
+
+      if (!selectedLocal) {
+        await this.sendAutoReply(phone, `Opção inválida. ${this.buildLocationMenuMessage(pendingData.options)}`);
+        console.log('ℹ️ Invalid location selection, re-sent menu');
+        return;
+      }
 
       this.pendingCallLocations.delete(phone);
 
       const user = await UserRepository.findById(userId);
       const call = await CallRepository.create({
-        title: location,
+        title: selectedLocal.name,
         description: `Chamado criado via WhatsApp - ${phone}`,
         status: 'OPEN',
         priority: 'MEDIUM',
@@ -328,6 +353,8 @@ export class WhatsAppMessageProcessor {
         userName: user?.name,
         userEmail: user?.email,
         userPhone: user?.phone,
+        chamadoLocalId: selectedLocal.id,
+        chamadoLocalName: selectedLocal.name,
       });
 
       await this.sendAutoReply(phone, `Novo chamado de número #${call.id.substring(0, 8)}`, {
@@ -335,9 +362,8 @@ export class WhatsAppMessageProcessor {
         userId,
       });
 
-      // Create message in subcollection
       await CallMessageRepository.create(call.id, {
-        content: location,
+        content: selectedLocal.name,
         messageType: 'text',
         source: 'whatsapp',
         sessionName: this.sessionName,
@@ -345,9 +371,9 @@ export class WhatsAppMessageProcessor {
         senderPhone: phone,
         senderName: user?.name,
       });
-      await CallRepository.incrementMessageCount(call.id, location);
+      await CallRepository.incrementMessageCount(call.id, selectedLocal.name);
 
-      console.log('✅ Call created with location:', location);
+      console.log('✅ Call created with location:', selectedLocal.name);
     } catch (error) {
       console.error('❌ Error handling call location response:', error);
     }

@@ -10,9 +10,11 @@ import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
 import { errorHandler } from './middleware/error.middleware';
 import { swaggerSpec } from './config/swagger';
-import { initializeFirebase, getFirestore } from './lib/firebase';
+import { initializeDatabase, checkDatabaseHealth } from './lib/db';
+import { migrate } from './db/migrate';
 import { whatsappService } from './services/whatsapp/whatsapp.service';
 import { seed } from './scripts/seed';
+import { uploadsConfig } from './storage/storage';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -46,9 +48,8 @@ app.use(
 // Allow larger payloads (WPPConnect webhook may include base64 media data)
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT ?? '25mb' }));
 
-// Note: No local uploads directory needed
-// All files are stored in GCS (configured via STORAGE_DRIVER=gcs)
-// File URLs are generated via storage.getFileUrl() which returns GCS signed URLs
+// Serve uploaded files from local disk storage
+app.use(`/${uploadsConfig.prefix}`, express.static(uploadsConfig.dir));
 
 // 3) Montar documentação Swagger
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
@@ -68,19 +69,15 @@ app.use('/api', routes);
 // 5) Middleware de tratamento de erro
 app.use(errorHandler);
 
-// 6) Initialize Firebase and start server
+// 6) Initialize PostgreSQL and start server
 async function startServer() {
   try {
-    // Initialize Firebase
-    initializeFirebase();
-    const db = getFirestore();
-    
-    // Basic Firestore connection check (read-only)
-    await db.collection('_health').doc('check').get();
-    console.log('✅ Firestore ready');
+    initializeDatabase();
+    await migrate();
+    await checkDatabaseHealth();
+    console.log('✅ PostgreSQL ready');
 
-    // Auto-seed database in development mode (idempotent - safe to run multiple times)
-    if (process.env.FIRESTORE_EMULATOR_HOST || process.env.NODE_ENV === 'development') {
+    if (process.env.SEED_ON_STARTUP !== 'false') {
       seed()
         .then(() => {
           console.log('✅ Database seeding completed');
@@ -90,7 +87,6 @@ async function startServer() {
         });
     }
 
-    // Start WPPConnect Direct Service (optional, async, don't wait)
     if (whatsappEnabled) {
       whatsappService.initialize()
         .then(() => {

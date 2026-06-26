@@ -6,7 +6,9 @@ import {
   UserRepository,
   CallMessageRepository,
   CallAttachmentRepository,
-  CallHistoryRepository
+  CallHistoryRepository,
+  ChamadoLocalRepository,
+  DepartamentoRepository,
 } from '../repositories';
 
 export class CallController {
@@ -165,15 +167,25 @@ export class CallController {
         return res.status(401).json({ message: 'User not authenticated' });
       }
 
-      const { title, description, status, priority } = req.body;
+      const { title, description, status, priority, chamadoLocalId } = req.body;
 
-      // Validar campos obrigatórios
-      if (!title || !description) {
+      if (!description) {
         return res.status(400).json({ 
           message: 'Missing required fields',
-          required: ['title', 'description']
+          required: ['description', 'chamadoLocalId']
         });
       }
+
+      if (!chamadoLocalId) {
+        return res.status(400).json({ message: 'Local é obrigatório' });
+      }
+
+      const local = await ChamadoLocalRepository.findById(String(chamadoLocalId));
+      if (!local) {
+        return res.status(400).json({ message: 'Local inválido' });
+      }
+
+      const callTitle = (typeof title === 'string' && title.trim()) ? title.trim() : local.name;
 
       // Converter status e priority para maiúsculo
       const formattedStatus = status ? status.toUpperCase() : 'OPEN';
@@ -198,24 +210,26 @@ export class CallController {
       const user = await UserRepository.findById(String(userId));
 
       console.log('Criando chamado com dados:', {
-        title,
+        title: callTitle,
         description,
         status: formattedStatus,
         priority: formattedPriority,
         userId,
+        chamadoLocalId: local.id,
         files: req.files
       });
 
-      // Criar o chamado
       const call = await CallRepository.create({
-        title,
+        title: callTitle,
         description,
         status: formattedStatus,
         priority: formattedPriority,
         userId: String(userId),
         userName: user?.name,
         userEmail: user?.email,
-        userPhone: user?.phone
+        userPhone: user?.phone,
+        chamadoLocalId: local.id,
+        chamadoLocalName: local.name,
       });
 
       // Add attachments if present (new subcollection only)
@@ -268,33 +282,58 @@ export class CallController {
   static async updateCall(req: Request, res: Response) {
     try {
       const callId = req.params.id;
-      const { title, description, status, priority } = req.body;
+      const { title, description, status, priority, chamadoLocalId, departamentoId } = req.body;
       const userId = req.user?.id;
 
       if (!userId) {
         return res.status(401).json({ message: 'User not authenticated' });
       }
 
-      // Buscar o chamado atual para obter o status anterior
       const currentCall = await CallRepository.findById(callId);
 
       if (!currentCall) {
         return res.status(404).json({ message: 'Call not found' });
       }
 
-      // Atualizar o chamado
-      const updatedCall = await CallRepository.update(callId, {
+      const updatePayload: Record<string, unknown> = {
         title,
         description,
         status,
-        priority
-      });
+        priority,
+      };
+
+      if (chamadoLocalId !== undefined && chamadoLocalId !== '') {
+        const local = await ChamadoLocalRepository.findById(String(chamadoLocalId));
+        if (!local) {
+          return res.status(400).json({ message: 'Local inválido' });
+        }
+        updatePayload.chamadoLocalId = local.id;
+        updatePayload.chamadoLocalName = local.name;
+        if (!title) {
+          updatePayload.title = local.name;
+        }
+      }
+
+      if (departamentoId !== undefined) {
+        if (departamentoId === '' || departamentoId === null) {
+          updatePayload.departamentoId = null;
+          updatePayload.departamentoName = null;
+        } else {
+          const departamento = await DepartamentoRepository.findById(String(departamentoId));
+          if (!departamento) {
+            return res.status(400).json({ message: 'Departamento inválido' });
+          }
+          updatePayload.departamentoId = departamento.id;
+          updatePayload.departamentoName = departamento.name;
+        }
+      }
+
+      const updatedCall = await CallRepository.update(callId, updatePayload);
 
       if (!updatedCall) {
         return res.status(404).json({ message: 'Call not found' });
       }
 
-      // Add new attachments if present (new subcollection only)
       if (Array.isArray(req.files) && req.files.length > 0) {
         for (const file of req.files as Express.Multer.File[]) {
           await CallAttachmentRepository.create(callId, {
@@ -308,23 +347,53 @@ export class CallController {
         }
       }
 
-      // If status changed, record in history (new subcollection only)
+      const actor = await UserRepository.findById(String(userId));
+
       if (status && status !== currentCall.status) {
-        const user = await UserRepository.findById(String(userId));
-        
         await CallHistoryRepository.createStatusChange(
           callId,
           currentCall.status,
           status,
           String(userId),
-          user?.name
+          actor?.name
         );
       }
 
-      // Get updated call with images
+      if (chamadoLocalId !== undefined && chamadoLocalId !== '') {
+        const newLocalId = String(chamadoLocalId);
+        if (newLocalId !== currentCall.chamadoLocalId) {
+          const local = await ChamadoLocalRepository.findById(newLocalId);
+          await CallHistoryRepository.createLocalChange(
+            callId,
+            currentCall.chamadoLocalName,
+            local?.name,
+            String(userId),
+            actor?.name
+          );
+        }
+      }
+
+      if (departamentoId !== undefined) {
+        const newDeptId = departamentoId === '' || departamentoId === null ? null : String(departamentoId);
+        const currentDeptId = currentCall.departamentoId ?? null;
+        if (newDeptId !== currentDeptId) {
+          let newDeptName: string | undefined;
+          if (newDeptId) {
+            const dept = await DepartamentoRepository.findById(newDeptId);
+            newDeptName = dept?.name;
+          }
+          await CallHistoryRepository.createDepartmentChange(
+            callId,
+            currentCall.departamentoName,
+            newDeptName,
+            String(userId),
+            actor?.name
+          );
+        }
+      }
+
       const callWithImages = await CallRepository.findByIdWithImages(callId);
       
-      // Get user info
       let user = null;
       if (updatedCall.userId) {
         const userDoc = await UserRepository.findById(updatedCall.userId);
@@ -381,7 +450,7 @@ export class CallController {
     try {
       const { dateStart, dateEnd, status } = req.query;
       
-      // For Firestore, we need to query differently
+      // Look up the attachment within the call
       // Get all calls and filter/group in memory
       const result = await CallRepository.findMany({
         page: 1,
@@ -482,19 +551,19 @@ export class CallController {
         return res.status(404).json({ message: 'Attachment not found' });
       }
 
-      // Delete from Firestore
+      // Delete from database
       const deleted = await CallAttachmentRepository.delete(callId, attachmentId);
 
       if (!deleted) {
         return res.status(404).json({ message: 'Attachment not found' });
       }
 
-      // Delete file from GCS
+      // Delete file from local storage
       try {
         await storage.deleteFile(attachment.path);
-        console.log(`🗑️ Deleted file from GCS: ${attachment.path}`);
+        console.log(`🗑️ Deleted file from storage: ${attachment.path}`);
       } catch (deleteError) {
-        console.warn('Error deleting attachment file from GCS:', deleteError);
+        console.warn('Error deleting attachment file from storage:', deleteError);
       }
 
       // Decrement attachment count on call
