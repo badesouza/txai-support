@@ -53,13 +53,16 @@ services:
     shm_size: '2gb'
     ports:
       - "127.0.0.1:21465:21465"
-    command: ["--config", "/usr/src/wpp-server/config.json"]
+    command:
+      - --secretKey
+      - ${WPPCONNECT_SECRET_KEY:-THISISMYSECURETOKEN}
+      - --port
+      - "21465"
     environment:
       PORT: 21465
       SECRET_KEY: ${WPPCONNECT_SECRET_KEY:-THISISMYSECURETOKEN}
       TZ: America/Sao_Paulo
     volumes:
-      - ./wppconnect/config.json:/usr/src/wpp-server/config.json:ro
       - wppconnect_data:/usr/src/wpp-server/userDataDir
     networks:
       - txai-network
